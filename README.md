@@ -3,175 +3,238 @@ Chat System – Phase 1
 Name: Sukhdeep Kaur (s5388440)
 Software Frameworks (3813ICT_3255)
 
--- Repository Organization
+1) Git Repository Organization & Usage
 
-/chat-client/ → Angular frontend (login, dashboard, chat).
+Structure
 
-/server/ → Node.js + Express backend (auth, groups, channels).
+chat-client/ – Angular frontend (standalone components, routing).
 
-README.md → Documentation (this file).
+server/ – (Phase-1 optional) Node/Express scaffold for future MongoDB phase.
 
-.gitignore → Excludes node_modules/ and build artifacts.
+.gitignore excludes node_modules/, build artefacts.
 
-Git was used throughout development:
+Practices
 
-git init to initialize repo.
+Branching: feature branches like feat/auth, feat/groups, fix/guards.
 
-Frequent commits for features (auth, groups, channels).
+Commit frequency: small, descriptive commits per feature/fix.
 
-Branching for testing features before merging.
+Separation: frontend and (optional) server kept in separate folders for clarity.
 
-Final push to GitHub private repo (shared with tutor).
-
--- Data Structures
-User
-{
-  id: string;
-  username: string;
+2) Data Structures (Client & Server)
+Client models (TypeScript)
+// users
+interface User {
+  id: string;               // UUID
+  username: string;         // unique
   email: string;
-  roles: string[]; // ['super'], ['groupAdmin'], ['user']
-  groups: string[]; // IDs of groups the user belongs to
+  roles: string[];          // 'super' | 'groupAdmin' | 'user'
+  groups: string[];         // group IDs the user belongs to
 }
 
-Group
-{
-  id: string;
-  name: string;
-  creatorId: string;
-  users: string[];
-  channels: Channel[];
-  joinRequests: string[];
-}
-
-Channel
-{
-  id: string;
-  name: string;
-  messages: Message[];
-}
-
-Message
-{
-  username: string;
+// chat messages
+interface Message {
+  username: string;         // sender username
   content: string;
-  timestamp: number;
+  timestamp: number;        // ms since epoch
 }
 
+// channel (subgroup)
+interface Channel {
+  id: string;
+  name: string;
+  members: string[];        // user IDs who can access this channel
+  messages: Message[];      // chronological list
+}
 
-Data is stored in browser localStorage (temporary persistence for Phase 1).
+// group (top-level container)
+interface Group {
+  id: string;
+  name: string;
+  creatorId: string;        // user ID of the GA/Super who created it
+  users: string[];          // member IDs
+  joinRequests: string[];   // pending user IDs
+  channels: Channel[];
+}
 
---Angular Architecture
+Server-side (Phase 1)
 
+Persistence: Phase-1 uses browser LocalStorage for data (as permitted).
+
+(Optional stub) data.json structure mirrors the client models for Phase 2 migration.
+
+3) Angular Architecture
 Components
 
-LoginComponent → login form, authentication.
+LoginComponent
 
-DashboardComponent → groups, channels, messaging, admin panels.
+Username/password form (Phase-1 simple check).
+
+On success, persists currentUser in LocalStorage; routes to /dashboard.
+
+DashboardComponent
+
+Lists groups relevant to the user (Super sees all; GA sees created/owned and joined; User sees all with “Request to Join”).
+
+Per-group actions based on role: request/approve/reject, add channel, leave group, delete group, remove channel.
+
+Channel view with messages and send box.
 
 Services
 
-AuthService → login/logout, role checks, user management.
+AuthService
 
-GroupService → create groups, channels, join requests.
+login(username, password) / logout()
 
-ChatService → send/get messages in channels.
+getUser() / role helpers isSuper(), isGroupAdmin()
+
+User management for Super: create, promote, delete.
+
+Stores session and users in LocalStorage.
+
+GroupService
+
+loadGroups() / saveGroups() to/from LocalStorage.
+
+Group CRUD: createGroup, deleteGroup
+
+Join flow: requestToJoin, approveJoinRequest, rejectJoinRequest
+
+Membership: addUserToGroup, removeUserFromGroup, leaveGroup
+
+Channels: createChannel, removeChannel
+
+ChatService
+
+sendMessage(groupId, channelId, username, content)
+
+getMessages(groupId, channelId)
+
+Messages are stored inside the channel’s messages[] (in groups persisted via GroupService).
 
 Models
 
-user.model.ts, group.model.ts.
+user.model.ts, group.model.ts define the interfaces above.
 
 Routes
 
-/login → LoginComponent.
+/login → LoginComponent
 
-/dashboard → DashboardComponent.
+/dashboard → DashboardComponent (guarded by auth)
 
--- Node Server Architecture
+4) Node Server Architecture (Phase 1)
 
-server.js → Express app entry point.
+Phase-1 requirement allows LocalStorage; a minimal server is scaffolded for Phase-2 migration.
 
-Routes
+Files (optional in Phase-1):
 
-/api/auth → login.
+server/index.js (Express app placeholder)
 
-/api/groups → group CRUD.
+server/data.json (JSON persistence placeholder)
 
-/api/channels → channel management.
+Modules
 
-Sockets
+Express, CORS, JSON body parsing
 
-Placeholder for socket.io & Peer.js (Phase 2 real-time).
+Functions
 
-Data
+load() / save() to read/write JSON (Phase-2)
 
-Stored temporarily in arrays or localStorage fallback.
+Globals
 
---Server-Side Routes
-Method	Route	Params	Purpose
-POST	/api/auth	{ username, password}	Authenticate user
-GET	/api/groups	–	Get all groups
-POST	/api/groups	{ name }	Create new group
-POST	/api/channels	{ groupId, name }	Create channel in group
-POST	/api/messages	{ groupId, channelId}	Send message to channel
-- Client–Server Interaction
+None beyond the loaded JSON object in the stub
 
-Login:
-Angular LoginComponent → AuthService → POST /api/auth.
-On success, user info stored in localStorage.
+(For Phase-1, the Angular app does not depend on the server; data is kept in LocalStorage.)
 
-Dashboard load:
-Angular loads groups from GroupService (localStorage sync).
+5) Server-Side Routes (Defined for Phase-2 Migration; Optional in Phase-1)
+Method	Route	Body / Params	Returns	Purpose
+POST	/api/auth/login	{ username, password }	{ user }	Authenticate; return user (role info).
+GET	/api/users	–	User[]	List users (Super only).
+POST	/api/users	{ id, username, email, roles }	{ ok: true }	Create user (Super).
+DELETE	/api/users/:id	id path	{ ok: true }	Delete user (Super).
+GET	/api/groups	–	Group[]	List groups.
+POST	/api/groups	Group	{ ok: true }	Create group.
+PUT	/api/groups/:groupId	Group	{ ok: true }	Update group (channels/members/etc.).
+DELETE	/api/groups/:groupId	groupId path	{ ok: true }	Delete group (Super or creator).
+POST	/api/groups/:groupId/join	{ userId }	{ ok: true }	Request to join.
+PUT	/api/groups/:groupId/approve/:userId	–	{ ok: true }	Approve join request.
+PUT	/api/groups/:groupId/reject/:userId	–	{ ok: true }	Reject join request.
+POST	/api/groups/:groupId/channels	{ name }	Channel	Create channel.
+DELETE	/api/groups/:groupId/channels/:cid	groupId, cid path	{ ok: true }	Remove channel.
+POST	/api/messages	{ groupId, channelId, message }	{ ok: true }	Send message to channel.
 
-Join request:
-User requests → added to joinRequests[].
-Group Admin / Super can approve/reject → updates users[].
+In Phase-1, the equivalent mutations are done client-side and persisted with localStorage.
 
-Channel + Chat:
-Selecting group → shows channels.
-Sending message → ChatService updates localStorage, re-renders messages.
+6) Client–Server Interaction & UI Updates (Phase 1 workflow)
 
---Client–Server Interaction
+Because Phase-1 uses LocalStorage, “server-side” below refers to GroupService/AuthService state persisted to LocalStorage. The following describes how each UI action changes data and updates views:
 
-Angular calls server REST APIs via api.service.ts.
+Authentication
 
-Server updates in-memory data and responds with JSON.
+LoginComponent calls AuthService.login(username, password).
 
-Client updates component state and view (dashboard or login).
+On success, currentUser is saved to LocalStorage and the app navigates to /dashboard.
 
-localStorage ensures persistence between sessions (until MongoDB in Phase 2).
---Data Storage
+DashboardComponent reads currentUser and loads groups via GroupService.loadGroups().
 
-Phase 1: Browser localStorage.
+Group Visibility
 
-Phase 2: MongoDB (not yet implemented).
+Super Admin: sees all groups (groups = getGroups()).
 
---  Git Usage
+Group Admin: sees groups they created and any they joined.
 
-Repo initialized with git init.
+User: sees all groups but cannot access channels unless a member (will see “Request to Join”).
 
-Regular commits for each feature:
+Request to Join
 
-auth-service-setup
+User clicks Request to Join → GroupService.requestToJoin(groupId, userId) pushes userId into group.joinRequests and persists with saveGroups().
 
-group-join-requests
+Dashboard re-reads groups (or the component state updates) and shows “Request pending…” for that group.
 
-chat-service-messages
+Approve / Reject
 
-Pushed to private GitHub repo.
+Super or Group Creator (GA) opens the group panel and sees pending requests.
 
-Tutor given access.
+Clicking Approve → GroupService.approveJoinRequest(groupId, userId):
 
--- Features Implemented
+Removes userId from joinRequests
 
-Authentication with roles (Super, Group Admin, User).
+Adds userId to users
 
-Super Admin: promote, delete, manage users.
+(Optional) Adds to each channel’s members by default, or keeps channels opt-in
 
-Group Admin: create/manage own groups & channels.
+Calls saveGroups()
 
-User: request to join, leave group, send messages.
+Component refreshes its groups list; the user now sees channels for groups they’re in.
 
-Join request/approval system.
+Channels
 
-LocalStorage persistence.
+Admins (Super or GA of that group) can add/remove channels:
 
+Add → GroupService.createChannel(groupId, name) → push to group.channels → saveGroups() → UI visibleChannels updates.
+
+Remove → GroupService.removeChannel(groupId, channelId, requesterId) → saveGroups() → UI updates.
+
+Access Control & Visibility
+
+A user cannot see channels unless:
+
+They are in group.users, and
+
+Their userId is in channel.members (or the app auto-adds members on approve).
+
+Dashboard computes visibleChannels = channels where currentUser.id ∈ channel.members.
+
+Messaging
+
+Selecting a channel calls ChatService.getMessages(groupId, channelId) to display messages[].
+
+Sending a message calls ChatService.sendMessage(...) which appends {username, content, timestamp} to that channel’s messages[], then persists via GroupService.saveGroups().
+
+The messages panel rebinds to the updated array and shows the new message.
+
+Leaving / Deleting
+
+Leave Group: GroupService.leaveGroup(groupId, userId) removes membership and channel access; saveGroups(); UI hides the group’s channels for that user.
+
+Delete Group: allowed for Super or group creator only; removes the group; UI refreshes group list.
