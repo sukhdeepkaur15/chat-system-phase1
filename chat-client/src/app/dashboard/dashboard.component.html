@@ -1,0 +1,124 @@
+<div class="dashboard">
+  <h2>Welcome, {{ greetingTitle }} 🎊</h2>
+  <p>Your Role: {{ roleDisplay }}</p>
+
+  <!-- Super / Group Admin: create group -->
+  <div *ngIf="role.includes('super') || role.includes('groupAdmin')">
+    <input #newGroupName placeholder="New Group Name">
+    <button (click)="createGroup(newGroupName.value); newGroupName.value=''">
+      Add Group
+    </button>
+  </div>
+
+  <!-- List Groups -->
+  <div *ngFor="let group of groups; trackBy: trackById">
+    <!-- Click group name to open its panel below -->
+    <h3 (click)="selectGroup(group)" style="cursor:pointer">{{ group.name }}</h3>
+
+    <!-- Normal User ONLY: request or pending -->
+    <div *ngIf="!isSuper">
+      <div *ngIf="!isMember(group) && !hasRequested(group)">
+        <button (click)="requestToJoin(group)">Request to Join</button>
+      </div>
+      <div *ngIf="hasRequested(group)">
+        <span>Request pending...</span>
+      </div>
+    </div>
+
+    <!-- Super can approve all; Group Admin only for groups they created -->
+    <div *ngIf="(isSuper || (isGroupAdmin && group.creatorId === currentUserId)) && ((group.joinRequests?.length || 0) > 0)">
+      <h4>Pending Join Requests:</h4>
+      <div *ngFor="let uid of (group.joinRequests || [])">
+        <span>{{ getUserById(uid)?.username || uid }}</span>
+        <button (click)="approveJoinRequest(group, uid)">Approve</button>
+        <button (click)="rejectJoinRequest(group, uid)">Reject</button>
+      </div>
+    </div>
+
+    <!-- Selected group panel (channels) -->
+    <div *ngIf="selectedGroup?.id === group.id">
+      <ul>
+        <li *ngFor="let ch of visibleChannels; trackBy: trackById"
+         (click)="selectChannel(ch)"
+        style="cursor:pointer">
+      {{ ch.name }}
+          <!-- Remove channel (Super OR group creator only) -->
+          <button *ngIf="isSuper || (isGroupAdmin && group.creatorId === currentUserId)"
+                  (click)="removeChannel(group, ch.id)">
+            Remove
+          </button>
+        </li>
+      </ul>
+      <p *ngIf="visibleChannels.length === 0">
+    You don't have access to any channels in this group yet.
+  </p>
+    <!-- Add channel: Super always; GA only if creator AND member -->
+      <div *ngIf="isSuper || (isGroupAdmin && group.creatorId === currentUserId && isMember(group))">
+        <input #newChannelName placeholder="New Channel Name">
+        <button (click)="addChannelToGroup(group, newChannelName.value); newChannelName.value=''">
+          Add Channel
+        </button>
+      </div>
+
+      <!-- Leave / Delete -->
+      <div style="margin: 6px 0;">
+        <button *ngIf="isMember(group)" (click)="leaveGroup(group)">Leave Group</button>
+        <button *ngIf="isSuper || (isGroupAdmin && group.creatorId === currentUserId)"
+                (click)="deleteGroup(group)">
+          Delete Group
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Chat Box -->
+  <div *ngIf="selectedChannel">
+    <h4>Channel: {{ selectedChannel.name }}</h4>
+    <div class="messages">
+      <div *ngFor="let msg of messages">
+        <strong>{{ msg.username }}:</strong> {{ msg.content }}
+      </div>
+    </div>
+    <input [(ngModel)]="newMessage" placeholder="Type message...">
+    <button (click)="sendMessage()">Send</button>
+  </div>
+
+  <!-- SUPER ADMIN PANEL -->
+  <div *ngIf="role.includes('super')" class="super-admin-panel">
+    <h2>👑 Super Admin Panel</h2>
+
+    <!-- Create New User -->
+    <h3>Create New User</h3>
+    <input [(ngModel)]="newUsername" placeholder="Username">
+    <input [(ngModel)]="newEmail" placeholder="Email">
+    <select [(ngModel)]="newRole">
+      <option value="user">User</option>
+      <option value="groupAdmin">Group Admin</option>
+      <option value="super">Super Admin</option>
+    </select>
+    <button (click)="createUser()">Create User</button>
+
+    <!-- Manage Existing Users -->
+    <h3>Manage Users</h3>
+    <table border="1" cellpadding="5">
+      <tr>
+        <th>Username</th>
+        <th>Email</th>
+        <th>Roles</th>
+        <th>Actions</th>
+      </tr>
+      <tr *ngFor="let u of allUsers">
+        <td>{{ u.username }}</td>
+        <td>{{ u.email }}</td>
+        <td>{{ u.roles.join(', ') }}</td>
+        <td>
+          <button (click)="promoteUser(u, 'groupAdmin')">Promote to Group Admin</button>
+          <button (click)="promoteUser(u, 'super')">Promote to Super</button>
+          <button (click)="deleteUser(u)">Delete</button>
+        </td>
+      </tr>
+    </table>
+  </div>
+
+  <button (click)="logout()">Logout</button>
+</div>
