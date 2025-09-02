@@ -1,59 +1,177 @@
-# ChatClient
+Chat System – Phase 1
 
-This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 20.2.0.
+Name: Sukhdeep Kaur (s5388440)
+Software Frameworks (3813ICT_3255)
 
-## Development server
+-- Repository Organization
 
-To start a local development server, run:
+/chat-client/ → Angular frontend (login, dashboard, chat).
 
-```bash
-ng serve
-```
+/server/ → Node.js + Express backend (auth, groups, channels).
 
-Once the server is running, open your browser and navigate to `http://localhost:4200/`. The application will automatically reload whenever you modify any of the source files.
+README.md → Documentation (this file).
 
-## Code scaffolding
+.gitignore → Excludes node_modules/ and build artifacts.
 
-Angular CLI includes powerful code scaffolding tools. To generate a new component, run:
+Git was used throughout development:
 
-```bash
-ng generate component component-name
-```
+git init to initialize repo.
 
-For a complete list of available schematics (such as `components`, `directives`, or `pipes`), run:
+Frequent commits for features (auth, groups, channels).
 
-```bash
-ng generate --help
-```
+Branching for testing features before merging.
 
-## Building
+Final push to GitHub private repo (shared with tutor).
 
-To build the project run:
+-- Data Structures
+User
+{
+  id: string;
+  username: string;
+  email: string;
+  roles: string[]; // ['super'], ['groupAdmin'], ['user']
+  groups: string[]; // IDs of groups the user belongs to
+}
 
-```bash
-ng build
-```
+Group
+{
+  id: string;
+  name: string;
+  creatorId: string;
+  users: string[];
+  channels: Channel[];
+  joinRequests: string[];
+}
 
-This will compile your project and store the build artifacts in the `dist/` directory. By default, the production build optimizes your application for performance and speed.
+Channel
+{
+  id: string;
+  name: string;
+  messages: Message[];
+}
 
-## Running unit tests
+Message
+{
+  username: string;
+  content: string;
+  timestamp: number;
+}
 
-To execute unit tests with the [Karma](https://karma-runner.github.io) test runner, use the following command:
 
-```bash
-ng test
-```
+Data is stored in browser localStorage (temporary persistence for Phase 1).
 
-## Running end-to-end tests
+--Angular Architecture
 
-For end-to-end (e2e) testing, run:
+Components
 
-```bash
-ng e2e
-```
+LoginComponent → login form, authentication.
 
-Angular CLI does not come with an end-to-end testing framework by default. You can choose one that suits your needs.
+DashboardComponent → groups, channels, messaging, admin panels.
 
-## Additional Resources
+Services
 
-For more information on using the Angular CLI, including detailed command references, visit the [Angular CLI Overview and Command Reference](https://angular.dev/tools/cli) page.
+AuthService → login/logout, role checks, user management.
+
+GroupService → create groups, channels, join requests.
+
+ChatService → send/get messages in channels.
+
+Models
+
+user.model.ts, group.model.ts.
+
+Routes
+
+/login → LoginComponent.
+
+/dashboard → DashboardComponent.
+
+-- Node Server Architecture
+
+server.js → Express app entry point.
+
+Routes
+
+/api/auth → login.
+
+/api/groups → group CRUD.
+
+/api/channels → channel management.
+
+Sockets
+
+Placeholder for socket.io & Peer.js (Phase 2 real-time).
+
+Data
+
+Stored temporarily in arrays or localStorage fallback.
+
+--Server-Side Routes
+Method	Route	Params	Purpose
+POST	/api/auth	{ username, password}	Authenticate user
+GET	/api/groups	–	Get all groups
+POST	/api/groups	{ name }	Create new group
+POST	/api/channels	{ groupId, name }	Create channel in group
+POST	/api/messages	{ groupId, channelId}	Send message to channel
+- Client–Server Interaction
+
+Login:
+Angular LoginComponent → AuthService → POST /api/auth.
+On success, user info stored in localStorage.
+
+Dashboard load:
+Angular loads groups from GroupService (localStorage sync).
+
+Join request:
+User requests → added to joinRequests[].
+Group Admin / Super can approve/reject → updates users[].
+
+Channel + Chat:
+Selecting group → shows channels.
+Sending message → ChatService updates localStorage, re-renders messages.
+
+--Client–Server Interaction
+
+Angular calls server REST APIs via api.service.ts.
+
+Server updates in-memory data and responds with JSON.
+
+Client updates component state and view (dashboard or login).
+
+localStorage ensures persistence between sessions (until MongoDB in Phase 2).
+--Data Storage
+
+Phase 1: Browser localStorage.
+
+Phase 2: MongoDB (not yet implemented).
+
+--  Git Usage
+
+Repo initialized with git init.
+
+Regular commits for each feature:
+
+auth-service-setup
+
+group-join-requests
+
+chat-service-messages
+
+Pushed to private GitHub repo.
+
+Tutor given access.
+
+-- Features Implemented
+
+Authentication with roles (Super, Group Admin, User).
+
+Super Admin: promote, delete, manage users.
+
+Group Admin: create/manage own groups & channels.
+
+User: request to join, leave group, send messages.
+
+Join request/approval system.
+
+LocalStorage persistence.
+
