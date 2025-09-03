@@ -1,0 +1,101 @@
+{
+  "users": [
+    {
+      "id": "6492b72a-6ad1-434f-845b-0cad8dbbff11",
+      "username": "super",
+      "email": "super@example.com",
+      "password": "123",
+      "roles": [
+        "super"
+      ],
+      "groups": []
+    }
+  ],
+  "groups": [
+    {
+      "id": "1453c3a6-4e8d-4059-9cb3-a72169b49de8",
+      "name": "Super group",
+      "creatorId": "1",
+      "users": [
+        "1",
+        "3",
+        "2"
+      ],
+      "joinRequests": [],
+      "channels": [
+        {
+          "id": "e1a98c25-0b51-4ed1-b809-5814e2f76802",
+          "name": "S1",
+          "members": [
+            "1",
+            "3",
+            "2"
+          ],
+          "messages": [
+            {
+              "username": "super",
+              "content": "hi",
+              "timestamp": 1756883842012
+            },
+            {
+              "username": "user1",
+              "content": "ji",
+              "timestamp": 1756883995647
+            }
+          ]
+        },
+        {
+          "id": "b57b881b-1430-4055-a490-98e3585163e2",
+          "name": "S2",
+          "members": [
+            "1",
+            "3",
+            "2"
+          ],
+          "messages": []
+        }
+      ]
+    },
+    {
+      "id": "da6dae23-332a-4cd7-9d2d-ea959b85d67b",
+      "name": "Group admin",
+      "creatorId": "2",
+      "users": [
+        "2",
+        "3"
+      ],
+      "joinRequests": [],
+      "channels": [
+        {
+          "id": "30e19409-8bee-44d6-97a4-7848f9a06013",
+          "name": "G1",
+          "members": [
+            "2",
+            "3"
+          ],
+          "messages": [
+            {
+              "username": "groupadmin",
+              "content": "hi",
+              "timestamp": 1756883891868
+            },
+            {
+              "username": "user1",
+              "content": "hi",
+              "timestamp": 1756884004145
+            }
+          ]
+        },
+        {
+          "id": "dbbad629-8f3d-40ce-b933-e1026dfd219d",
+          "name": "G2",
+          "members": [
+            "2",
+            "3"
+          ],
+          "messages": []
+        }
+      ]
+    }
+  ]
+}
