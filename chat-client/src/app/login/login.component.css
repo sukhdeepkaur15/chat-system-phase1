@@ -1,0 +1,28 @@
+.login-card {
+  width: 300px;
+  margin: 100px auto;
+  padding: 20px;
+  border: 1px solid #ccc;
+  border-radius: 10px;
+  text-align: center;
+  background: #f9f9f9;
+}
+
+.login-card input {
+  width: 90%;
+  margin: 10px 0;
+  padding: 8px;
+}
+
+.login-card button {
+  padding: 8px 20px;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 5px;
+}
+
+.error {
+  color: red;
+  margin-top: 10px;
+}

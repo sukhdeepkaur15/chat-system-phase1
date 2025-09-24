@@ -1,0 +1,160 @@
+{
+  "users": [
+    {
+      "id": "6492b72a-6ad1-434f-845b-0cad8dbbff11",
+      "username": "super",
+      "email": "super@example.com",
+      "password": "123",
+      "roles": [
+        "super"
+      ],
+      "groups": []
+    }
+  ],
+  "groups": [
+    {
+      "id": "1453c3a6-4e8d-4059-9cb3-a72169b49de8",
+      "name": "Super group",
+      "creatorId": "1",
+      "users": [
+        "1",
+        "3",
+        "2"
+      ],
+      "joinRequests": [],
+      "channels": [
+        {
+          "id": "e1a98c25-0b51-4ed1-b809-5814e2f76802",
+          "name": "S1",
+          "members": [
+            "1",
+            "3",
+            "2"
+          ],
+          "messages": [
+            {
+              "username": "super",
+              "content": "hi",
+              "timestamp": 1756883842012
+            },
+            {
+              "username": "user1",
+              "content": "ji",
+              "timestamp": 1756883995647
+            }
+          ]
+        },
+        {
+          "id": "b57b881b-1430-4055-a490-98e3585163e2",
+          "name": "S2",
+          "members": [
+            "1",
+            "3",
+            "2"
+          ],
+          "messages": []
+        }
+      ]
+    },
+    {
+      "id": "da6dae23-332a-4cd7-9d2d-ea959b85d67b",
+      "name": "Group admin",
+      "creatorId": "2",
+      "users": [
+        "2",
+        "3"
+      ],
+      "joinRequests": [],
+      "channels": [
+        {
+          "id": "30e19409-8bee-44d6-97a4-7848f9a06013",
+          "name": "G1",
+          "members": [
+            "2",
+            "3"
+          ],
+          "messages": [
+            {
+              "username": "groupadmin",
+              "content": "hi",
+              "timestamp": 1756883891868
+            },
+            {
+              "username": "user1",
+              "content": "hi",
+              "timestamp": 1756884004145
+            }
+          ]
+        },
+        {
+          "id": "dbbad629-8f3d-40ce-b933-e1026dfd219d",
+          "name": "G2",
+          "members": [
+            "2",
+            "3"
+          ],
+          "messages": []
+        }
+      ]
+    },
+    {
+      "id": "b3cacb39-1788-45a7-98db-b44edc2fbbb6",
+      "name": "Super group 1",
+      "creatorId": "1",
+      "users": [
+        "1",
+        "3",
+        "2"
+      ],
+      "joinRequests": [],
+      "channels": [
+        {
+          "id": "2b7195af-20ad-44ac-8e69-863f0387482f",
+          "name": "sgg1",
+          "members": [
+            "1",
+            "3",
+            "2"
+          ],
+          "messages": [
+            {
+              "username": "super",
+              "content": "hiiii",
+              "timestamp": 1756947438690
+            },
+            {
+              "username": "user1",
+              "content": "hii",
+              "timestamp": 1756947597225
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "babf035a-2d53-4c8a-a88f-999ae6c16d17",
+      "name": "group5",
+      "creatorId": "2",
+      "users": [
+        "2"
+      ],
+      "joinRequests": [],
+      "channels": [
+        {
+          "id": "e8ce9d1e-4d90-408a-9010-2a1a64e04816",
+          "name": "gr",
+          "members": [
+            "2"
+          ],
+          "messages": [
+            {
+              "username": "groupadmin",
+              "content": "hlo",
+              "timestamp": 1756947648457
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
