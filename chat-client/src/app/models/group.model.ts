@@ -7,8 +7,13 @@ export interface Message {
 export interface Channel {
   id: string;
   name: string;
-  members: string[]; 
+  members: string[];
   messages: Message[];
+
+  // NEW (match server)
+  bannedUsers?: string[];       // legacy client-side bans by userId
+  bannedUsernames?: string[];   // server ban-by-username
+  bannedUserIds?: string[];     // server ban-by-userId
 }
 
 export interface Group {
@@ -17,5 +22,8 @@ export interface Group {
   channels: Channel[];
   users: string[];
   joinRequests: string[];
-  creatorId: string; 
+  creatorId: string;
+
+  // OPTIONAL (for group-wide ban fan-out UI)
+  bannedUsers?: string[];
 }

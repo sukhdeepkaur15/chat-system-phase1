@@ -5,9 +5,9 @@ import { Observable } from 'rxjs';
 @Injectable({ providedIn: 'root' })
 export class ApiService {
   private base = 'http://localhost:4000';
-  
+
   constructor(private http: HttpClient) {}
-  
+
   health(): Observable<any> { return this.http.get(`${this.base}/health`); }
 
   getGroups(): Observable<any[]> { return this.http.get<any[]>(`${this.base}/groups`); }
@@ -30,8 +30,28 @@ export class ApiService {
     return this.http.put<T>(`${this.base}${path}`, body);
   }
 
-  delete<T>(path: string): Observable<T> {
-    return this.http.delete<T>(`${this.base}${path}`);
+  /**
+   * DELETE with optional JSON body, always returns the response body type T.
+   * Usage: this.api.delete<{ ok: boolean }>(`/url`, { body: {...} })
+   */
+  delete<T>(
+    path: string,
+    options: { body?: any; params?: Record<string, any> } = {}
+  ): Observable<T> {
+    let httpParams = new HttpParams();
+    if (options.params) {
+      for (const [k, v] of Object.entries(options.params)) {
+        if (v !== undefined && v !== null) httpParams = httpParams.set(k, String(v));
+      }
+    }
+
+    return this.http.request<T>('DELETE', `${this.base}${path}`, {
+      body: options.body,
+      params: httpParams,
+      // 👇 Forces Observable<T> (body), prevents HttpEvent inference
+      observe: 'body'
+    });
   }
 }
+
 

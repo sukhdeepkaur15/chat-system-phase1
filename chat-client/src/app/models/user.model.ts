@@ -1,8 +1,11 @@
+// Expand Role to include both strings you use across the app
+export type Role = 'super' | 'superAdmin' | 'groupAdmin' | 'user';
+
 export interface User {
   id: string;
   username: string;
-  email?: string;
-  roles: string[]; // e.g., ['super'], ['groupAdmin'], ['user']
-  groups: string[]; // array of group IDs the user belongs to
+  email: string;
+  roles: Role[];
+  password?: string; 
 }
 

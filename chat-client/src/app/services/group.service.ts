@@ -1,12 +1,30 @@
+// src/app/services/group.service.ts
 import { Injectable } from '@angular/core';
-import { Observable, tap } from 'rxjs';
+import { Observable, of, tap } from 'rxjs';
 import { ApiService } from './api.service';
 import { Group, Channel } from '../models/group.model'; // Message is inside channels
+
+/** ===== Moderation reports (Phase 1: in-memory) ===== */
+export interface ModerationReport {
+  id: string;
+  groupId: string;
+  channelId?: string;
+  userId?: string;
+  username?: string;
+  actorUserId: string;
+  actorUsername: string;
+  reason?: string;
+  createdAt: string;
+  resolved?: boolean;
+}
 
 @Injectable({ providedIn: 'root' })
 export class GroupService {
   /** Optional local cache so components can inspect after a fetch */
   public groupsCache: Group[] = [];
+
+  /** In-memory moderation reports (super admins can read & resolve) */
+  private reports: ModerationReport[] = [];
 
   constructor(private api: ApiService) {}
 
@@ -28,7 +46,7 @@ export class GroupService {
     );
   }
 
-  /** Delete a group (server enforces permissions) */
+  /** Delete a group */
   deleteGroup(groupId: string): Observable<{ ok: boolean }> {
     return this.api.delete<{ ok: boolean }>(`/groups/${groupId}`).pipe(
       tap(res => {
@@ -83,7 +101,6 @@ export class GroupService {
 
   /** ---- MEMBERSHIP / REQUESTS ---- */
 
-  /** Request to join a group */
   requestToJoin(groupId: string, userId: string): Observable<{ ok: boolean }> {
     return this.api.post<{ ok: boolean }>(`/groups/${groupId}/join`, { userId }).pipe(
       tap(res => {
@@ -98,18 +115,15 @@ export class GroupService {
     );
   }
 
-  /** Approve a join request */
   approveJoinRequest(groupId: string, userId: string): Observable<Group> {
     return this.api.put<Group>(`/groups/${groupId}/approve/${userId}`, {}).pipe(
       tap(updated => {
-        // trust server state; replace in cache
         if (!updated) return;
         this.groupsCache = this.groupsCache.map(g => (g.id === groupId ? updated : g));
       })
     );
   }
 
-  /** Reject a join request */
   rejectJoinRequest(groupId: string, userId: string): Observable<Group> {
     return this.api.put<Group>(`/groups/${groupId}/reject/${userId}`, {}).pipe(
       tap(updated => {
@@ -118,4 +132,108 @@ export class GroupService {
       })
     );
   }
+
+  /** ---- BANS (channel scope ONLY) ---- */
+
+  banUserInChannel(
+    groupId: string,
+    channelId: string,
+    userId?: string,
+    username?: string
+  ): Observable<{ ok: boolean; channel?: any }> {
+    return this.api.post<{ ok: boolean; channel?: any }>(
+      `/groups/${groupId}/channels/${channelId}/ban`,
+      { userId, username }
+    ).pipe(
+      tap(res => {
+        if (!res?.ok) return;
+        const g = this.groupsCache.find(x => x.id === groupId);
+        const c = g?.channels?.find(x => x.id === channelId);
+        if (c) {
+          (c as any).bannedUserIds = (c as any).bannedUserIds || [];
+          (c as any).bannedUsernames = (c as any).bannedUsernames || [];
+          if (userId && !(c as any).bannedUserIds.includes(userId)) {
+            (c as any).bannedUserIds.push(userId);
+            c.members = (c.members || []).filter(id => id !== userId);
+          }
+          if (username && !(c as any).bannedUsernames.includes(username)) {
+            (c as any).bannedUsernames.push(username);
+          }
+        }
+      })
+    );
+  }
+
+  unbanUserInChannel(
+    groupId: string,
+    channelId: string,
+    userId?: string,
+    username?: string
+  ): Observable<{ ok: boolean; channel?: any }> {
+    return this.api.delete<{ ok: boolean; channel?: any }>(
+      `/groups/${groupId}/channels/${channelId}/ban`,
+      { body: { userId, username } }
+    ).pipe(
+      tap(res => {
+        if (!res?.ok) return;
+        const g = this.groupsCache.find(x => x.id === groupId);
+        const c = g?.channels?.find(x => x.id === channelId);
+        if (c) {
+          (c as any).bannedUserIds = ((c as any).bannedUserIds || []).filter((id: string) => id !== userId);
+          (c as any).bannedUsernames = ((c as any).bannedUsernames || []).filter((u: string) => u !== username);
+        }
+      })
+    );
+  }
+
+  listBanned(
+    groupId: string,
+    channelId: string
+  ): Observable<{ bannedUserIds: string[]; bannedUsernames: string[] }> {
+    return this.api.get<{ bannedUserIds: string[]; bannedUsernames: string[] }>(
+      `/groups/${groupId}/channels/${channelId}/banned`
+    );
+  }
+
+  /** ---- MODERATION REPORTS (Phase 1, no server) ---- */
+
+  /**
+   * Group admins call this to report to super admins.
+   * Pass whatever you have; id/createdAt/resolved are auto-filled.
+   */
+  reportToSuper(report: {
+    groupId: string;
+    channelId?: string;
+    userId?: string;
+    username?: string;
+    actorUserId: string;
+    actorUsername: string;
+    reason?: string;
+  }): Observable<{ ok: boolean }> {
+    const id = 'r_' + Math.random().toString(36).slice(2, 10);
+    const rec: ModerationReport = {
+      id,
+      createdAt: new Date().toISOString(),
+      resolved: false,
+      ...report,
+    };
+    this.reports.push(rec);
+    return of({ ok: true });
+  }
+
+  /** Super admins load open reports */
+  getReports(): Observable<ModerationReport[]> {
+    return of(this.reports.filter(r => !r.resolved));
+  }
+
+  /** Super admins resolve a report */
+  resolveReport(reportId: string): Observable<{ ok: boolean }> {
+    const r = this.reports.find(x => x.id === reportId);
+    if (r) r.resolved = true;
+    return of({ ok: true });
+  }
 }
+
+
+
+

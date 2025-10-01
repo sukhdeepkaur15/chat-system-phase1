@@ -13,146 +13,84 @@
   ],
   "groups": [
     {
-      "id": "1453c3a6-4e8d-4059-9cb3-a72169b49de8",
-      "name": "Super group",
+      "id": "2953e778-a305-47a0-a0da-f459aa497910",
+      "name": "Group 1",
       "creatorId": "1",
       "users": [
         "1",
-        "3",
-        "2"
-      ],
-      "joinRequests": [],
-      "channels": [
-        {
-          "id": "e1a98c25-0b51-4ed1-b809-5814e2f76802",
-          "name": "S1",
-          "members": [
-            "1",
-            "3",
-            "2"
-          ],
-          "messages": [
-            {
-              "username": "super",
-              "content": "hi",
-              "timestamp": 1756883842012
-            },
-            {
-              "username": "user1",
-              "content": "ji",
-              "timestamp": 1756883995647
-            }
-          ]
-        },
-        {
-          "id": "b57b881b-1430-4055-a490-98e3585163e2",
-          "name": "S2",
-          "members": [
-            "1",
-            "3",
-            "2"
-          ],
-          "messages": []
-        }
-      ]
-    },
-    {
-      "id": "da6dae23-332a-4cd7-9d2d-ea959b85d67b",
-      "name": "Group admin",
-      "creatorId": "2",
-      "users": [
         "2",
         "3"
       ],
       "joinRequests": [],
       "channels": [
         {
-          "id": "30e19409-8bee-44d6-97a4-7848f9a06013",
-          "name": "G1",
+          "id": "98610c0a-a694-4ae6-9312-84d750a6789d",
+          "name": "ch 1",
           "members": [
+            "1",
             "2",
             "3"
           ],
           "messages": [
             {
-              "username": "groupadmin",
-              "content": "hi",
-              "timestamp": 1756883891868
+              "username": "user1",
+              "content": "hii",
+              "timestamp": 1759209428153
             },
             {
-              "username": "user1",
-              "content": "hi",
-              "timestamp": 1756884004145
+              "username": "super",
+              "content": "hlo",
+              "timestamp": 1759209454609
+            },
+            {
+              "username": "super",
+              "content": "hi group",
+              "timestamp": 1759211706121
+            },
+            {
+              "username": "groupadmin",
+              "content": "iuhi",
+              "timestamp": 1759211831170
             }
-          ]
-        },
-        {
-          "id": "dbbad629-8f3d-40ce-b933-e1026dfd219d",
-          "name": "G2",
-          "members": [
-            "2",
-            "3"
           ],
-          "messages": []
+          "bannedUserIds": [],
+          "bannedUsernames": []
         }
       ]
     },
     {
-      "id": "b3cacb39-1788-45a7-98db-b44edc2fbbb6",
-      "name": "Super group 1",
+      "id": "47d7bcec-27a3-416e-9ab9-de0294f26019",
+      "name": "GRoup 3",
       "creatorId": "1",
       "users": [
         "1",
-        "3",
         "2"
       ],
-      "joinRequests": [],
+      "joinRequests": [
+        "3"
+      ],
       "channels": [
         {
-          "id": "2b7195af-20ad-44ac-8e69-863f0387482f",
-          "name": "sgg1",
+          "id": "f2aacfd2-8601-4b96-8c8d-761e917c3c7f",
+          "name": "ch 3",
           "members": [
             "1",
-            "3",
             "2"
           ],
           "messages": [
             {
               "username": "super",
-              "content": "hiiii",
-              "timestamp": 1756947438690
+              "content": "fdfv",
+              "timestamp": 1759308524133
             },
             {
-              "username": "user1",
-              "content": "hii",
-              "timestamp": 1756947597225
+              "username": "super",
+              "content": "asvdf",
+              "timestamp": 1759308528280
             }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "babf035a-2d53-4c8a-a88f-999ae6c16d17",
-      "name": "group5",
-      "creatorId": "2",
-      "users": [
-        "2"
-      ],
-      "joinRequests": [],
-      "channels": [
-        {
-          "id": "e8ce9d1e-4d90-408a-9010-2a1a64e04816",
-          "name": "gr",
-          "members": [
-            "2"
           ],
-          "messages": [
-            {
-              "username": "groupadmin",
-              "content": "hlo",
-              "timestamp": 1756947648457
-            }
-          ]
+          "bannedUserIds": [],
+          "bannedUsernames": []
         }
       ]
     }

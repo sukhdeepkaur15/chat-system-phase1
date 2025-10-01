@@ -1,182 +1,267 @@
-**Chat System – Phase 1 (3813ICT Assignment 1)**
-**Table of Contents**
--- Overview
--- Repository Layout
--- Git Usage
--- Data Structures
--- Angular Architecture
--- Node.js Server Architecture
--- REST API Reference
--- Client–Server Interaction
--- Local Storage
--- screenshots
--- How to Run
+# Chat System -- Phase 1 Documentation
 
-**Overview**
-This project implements Phase 1 of a MEAN-stack chat system with authentication and role-based UI.
+## Repository Organisation and Git Usage
 
-**Roles:**
-Super Admin → manage all users, promote admins, remove users
-Group Admin → manage groups, channels, ban/unban users
-User → join groups/channels, send messages
+The repository is organised into two main folders:
 
-Phase 1 uses JSON + localStorage instead of MongoDB. Phase 2 will add sockets and MongoDB.
+\- chat-server/: Node/Express server with Socket.IO, REST endpoints, and
+JSON storage.
 
-**in short ## Repository Layout**
-  chat-client/` → Angular frontend
-  chat-server/` → Express backend with data.json persistence
-  docs/` → README.md + Word copy
+\- chat-client/: Angular frontend application with components, services,
+and models.
 
-**Repository layout***
-chat-system-phase1/
-├─ chat-client/      # Angular frontend
-│  ├─ src/app/
-│  │  ├─ services/ (api.service.ts, auth.service.ts)
-│  │  ├─ models/   (user.ts, group.ts, channel.ts)
-│  │  ├─ pages/    (login, dashboard, channel, admin)
-│  │  └─ shared/   (header component)
-├─ chat-server/      # Node.js + Express backend
-│  ├─ index.js
-│  ├─ data.json
-│  └─ package.json
-└─ docs/
-   ├─ README.md
-   └─ README.docx
+Additional files:
 
-## Git Usage
-- Branching:
-  - main branch contains stable working code
-  - feature branches are used for new features (e.g. feature/ban-user, feature/ui-cleanup)
-- Commits:
-  - Made frequently during development (not all on one day)
-  - Commit messages are descriptive and follow a pattern:
-    - feat(auth): add localStorage persistence
-    - fix(groups): prevent duplicate group names
-    - docs(readme): add REST API table
-- Collaboration:
-  - Each feature was developed and tested on its own branch
-  - Merged into `main` only after testing
+\- .gitignore excludes node_modules and build artifacts.
 
-**Data Structures**
-**User**
+\- README.md contains documentation.
+
+\- package.json in both client and server directories for dependencies.
+
+Git approach:
+
+\- Branch: main branch for development.
+
+\- Frequent commits with descriptive messages (e.g., "Add ban management
+in dashboard", "Fix group join request logic").
+
+\- Clear separation between frontend and backend commits.
+
+## Data Structures
+
+Client (Angular, LocalStorage Phase 1)
+
+User
+
 {
-  id: string,
-  username: string,
-  email: string,
-  roles: string[],     // ["USER"], ["GROUP_ADMIN"], ["SUPER_ADMIN"]
-  groups: string[]     // group IDs
+
+id: string;
+
+username: string;
+
+email: string;
+
+roles: string\[\]; // e.g. \[\"user\"\], \[\"groupAdmin\"\],
+\[\"super\"\]
+
+groups: string\[\];
+
 }
 
-**Group**
+Stored in localStorage under key users. Current session user stored
+under currentUser.
+
+Server (data.json)
+
+Group
+
 {
-  id: string,
-  name: string,
-  creatorId: string,
-  users: string[],
-  channels: Channel[]
+
+\"id\": \"g1\",
+
+\"name\": \"Group 1\",
+
+\"creatorId\": \"u1\",
+
+\"users\": \[\"u1\", \"u2\"\],
+
+\"joinRequests\": \[\"u3\"\],
+
+\"channels\": \[\...\]
+
 }
 
-**Channel**
+Channel
+
 {
-  id: string,
-  name: string,
-  members: string[],
-  messages: Message[],
-  bannedUserIds: string[],
-  bannedUsernames: string[]
-}
-Banned users are stored in bannedUsernames[] (and bannedUserIds[] if available). When posting messages, backend checks this list and rejects with HTTP 403
 
-**Message**
+\"id\": \"c1\",
+
+\"name\": \"General\",
+
+\"members\": \[\"u1\", \"u2\"\],
+
+\"bannedUsers\": \[\"u4\"\],
+
+\"bannedUsernames\": \[\"spamUser\"\],
+
+\"messages\": \[\...\]
+
+}
+
+Message
+
 {
-  username: string,
-  content: string,
-  timestamp: number
+
+\"id\": \"m1\",
+
+\"username\": \"jack\",
+
+\"content\": \"Hello world\",
+
+\"timestamp\": \"2025-09-01T12:00:00Z\"
+
 }
 
-**Angular Architecture
-Components**
-login.component` → input: username/password; output: login event → calls `AuthService`.
-dashboard.component` → input: logged-in user; output: navigation to channels.
-channel.component` → input: groupId, channelId; output: chat messages (via ChatService), admin ban/unban.
-admin.component` → input: none (Super/Group admin only); output: create/delete users, groups, channels.
-header.component` → input: current user; output: logout.
+Bans:
 
+\- Managed per-channel.
 
-**Services**
-auth.service.ts` → manages localStorage, login/logout, role checks.
-api.service.ts` → handles REST calls.
-chat.service.ts` → (Phase 2) manages socket.io/PeerJS connections.
+\- Two lists maintained:
 
-**Models**
-user.ts, group.ts, channel.ts
+\- bannedUsers → by user ID.
 
-**Node.js Server Architecture**
--- index.js
--- Uses express, cors, uuid
--- Reads/writes data.json on every change
--- Routes grouped by: health, users, groups, channels, messages, bans
+\- bannedUsernames → by username.
 
-**Functions**
-load() → load DB from JSON
-save(db) → write DB to JSON
+\- On ban: user removed from members and added to banned list.
 
-**REST API Reference**
-| Method | Route                                        | Params/Body                            | Returns       | Role  |
-| ------ | -------------------------------------------- | -------------------------------------- | ------------- | ----- |
-| GET    | `/health`                                    | –                                      | `{ok:true}`   | All   |
-| GET    | `/groups`                                    | –                                      | all groups    | All   |
-| POST   | `/groups`                                    | `{name, creatorId}`                    | new group     | Admin |
-| DELETE | `/groups/:id`                                | –                                      | `{ok:true}`   | Admin |
-| POST   | `/groups/:id/channels`                       | `{name}`                               | new channel   | Admin |
-| DELETE | `/groups/:gid/channels/:cid`                 | –                                      | `{ok:true}`   | Admin |
-| POST   | `/groups/:gid/join`                          | `{userId}`                             | `{ok:true}`   | User  |
-| PUT    | `/groups/:gid/approve/:uid`                  | –                                      | updated group | Admin |
-| PUT    | `/groups/:gid/reject/:uid`                   | –                                      | updated group | Admin |
-| GET    | `/messages?groupId&channelId`                | query params                           | messages\[]   | All   |
-| POST   | `/messages`                                  | `{groupId,channelId,username,content}` | message       | All   |
-| POST   | `/groups/:gid/channels/:cid/ban`             | `{userId?, username?}`                 | channel       | Admin |
-| DELETE | `/groups/:gid/channels/:cid/ban/username/:u` | –                                      | channel       | Admin |
-| DELETE | `/groups/:gid/channels/:cid/ban/user/:id`    | –                                      | channel       | Admin |
-| GET    | `/groups/:gid/channels/:cid/banned`          | –                                      | banned lists  | Admin |
+\- On unban: user is removed from banned list; they may rejoin the
+channel.
 
+## Angular Architecture
 
-**Client–Server Interaction**
-Login → auth.service.ts → localStorage → role-based UI.
-Groups & channels load from REST API (api.service.ts).
-When admin bans a user → Angular ChannelComponent calls banUserFromChannel() → server updates bannedUsernames → future POST /messages rejects with 403.
-JSON always saved to data.json.
+Components
 
-**Local Storage**
-Key: currentUser → {username, role, groups[]}
-On login: saved to localStorage.
-On logout: cleared.
-Guards: UI only shows buttons allowed by role.
+\- login/: Login form with authentication.
 
-**Screenshots**
+\- dashboard/: Main interface for groups, channels, chat, and admin
+functions.
 
-📸 Add screenshots for:
+Services
 
-Login page
-Dashboard (groups/channels)
-Channel view (chat + ban/unban panel)
-Admin panel (Super Admin creating users/groups)
-data.json file after changes
-Network tab showing 403 when banned user tries to send a message
+\- auth.service.ts -- manages localStorage users, login/logout, role
+checks.
 
-**How to Run**
-Backend
-cd chat-system-phase1/chat-server
-npm install
-npm start
-# API at http://localhost:4000
+\- group.service.ts -- handles groups, channels, join requests, bans
+(via REST).
 
-Frontend
-cd chat-system-phase1/chat-client/chat-client
-npm install
-npx ng serve -o
-# UI at http://localhost:4200
+\- chat.service.ts -- manages messages, sockets.
 
+Models
 
+\- user.model.ts -- structure for User.
 
+\- group.model.ts -- structures for Group, Channel, Message.
 
+Routes
+
+{ path: \'login\', component: LoginComponent }
+
+{ path: \'dashboard\', component: DashboardComponent }
+
+{ path: \'\', redirectTo: \'login\', pathMatch: \'full\' }
+
+## Node Server Architecture
+
+Files
+
+\- server.js → entry point; configures Express and Socket.IO.
+
+\- routes/groups.js → REST endpoints for groups/channels.
+
+\- routes/auth.js → basic user authentication endpoints (Phase 2).
+
+\- data.json → persistent JSON storage.
+
+Functions
+
+\- createGroup(name, creatorId)
+
+\- deleteGroup(id)
+
+\- createChannel(groupId, name)
+
+\- removeChannel(groupId, channelId)
+
+\- banUserInChannel(groupId, channelId, userId?, username?)
+
+\- unbanUserInChannel(\...)
+
+\- sendMessage(groupId, channelId, message)
+
+Global variables
+
+\- groupsCache in group.service.ts -- cached groups client-side.
+
+\- Server reads/writes data.json on updates.
+
+## REST API
+
+Route \| Method \| Params \| Returns \| Purpose
+
+/groups \| GET \| -- \| \[Group\] \| Fetch all groups
+
+/groups \| POST \| {name, creatorId} \| Group \| Create new group
+
+/groups/:id \| DELETE \| -- \| {ok} \| Delete a group
+
+/groups/:id/channels \| POST \| {name} \| Channel \| Create channel
+
+/groups/:id/channels/:cid \| DELETE \| -- \| {ok} \| Remove channel
+
+/groups/:id/join \| POST \| {userId} \| {ok} \| Request to join
+
+/groups/:id/approve/:uid \| PUT \| -- \| Group \| Approve join
+
+/groups/:id/reject/:uid \| PUT \| -- \| Group \| Reject join
+
+/groups/:id/channels/:cid/ban \| POST \| {userId?, username?} \| {ok} \|
+Ban user
+
+/groups/:id/channels/:cid/ban \| DELETE \| {userId?, username?} \| {ok}
+\| Unban user
+
+/groups/:id/channels/:cid/messages \| GET \| -- \| \[Message\] \| Fetch
+messages
+
+/groups/:id/channels/:cid/messages \| POST \| {username, content} \|
+{ok} \| Send message
+
+## Client--Server Interaction
+
+1\. Join request:
+
+\- Client sends /groups/:id/join → server adds to joinRequests.
+
+\- Dashboard shows request to group admin/super for approval.
+
+2\. Ban:
+
+\- GroupAdmin clicks "Ban at Channel" → POST /ban.
+
+\- Server updates bannedUsers / bannedUsernames.
+
+\- Client refreshes group → user disappears from members.
+
+\- If banned user tries to send a message, server rejects with 403 →
+client shows yellow warning.
+
+3\. Unban:
+
+\- Super/GA clicks "Unban" → DELETE /ban.
+
+\- Server removes from banned list.
+
+\- Client refresh updates and member reappears.
+
+## Notes on Storage
+
+Users: localStorage until MongoDB is added (Phase 2).
+
+Groups/Channels/Messages/Bans: stored in server/data.json.
+
+## Summary
+
+The system supports all required features:
+
+\- Multi-level roles (super, group admin, user).
+
+\- Group creation, join requests, approval/rejection.
+
+\- Channels inside groups.
+
+\- Per-channel bans with reporting to super admins.
+
+\- Local storage + server JSON persistence.
+
+\- Angular frontend + Node/Express backend with REST + sockets.

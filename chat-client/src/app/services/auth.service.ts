@@ -1,129 +1,115 @@
 import { Injectable } from '@angular/core';
-import { Router } from '@angular/router';
-import { User } from '../models/user.model';
-import { v4 as uuidv4 } from 'uuid'; // for unique IDs
+import { User, Role } from '../models/user.model';
 
-@Injectable({
-  providedIn: 'root',
-})
+@Injectable({ providedIn: 'root' })
 export class AuthService {
-  private users: User[] = [];
+  private USERS_KEY = 'users';
+  private CURRENT_KEY = 'currentUser';
 
-  private currentUser: User | null = null;
+  private readUsers(): User[] {
+    return JSON.parse(localStorage.getItem(this.USERS_KEY) || '[]');
+  }
+  private writeUsers(users: User[]) {
+    localStorage.setItem(this.USERS_KEY, JSON.stringify(users));
+  }
+  private writeCurrent(u: User | null) {
+    if (u) localStorage.setItem(this.CURRENT_KEY, JSON.stringify(u));
+    else localStorage.removeItem(this.CURRENT_KEY);
+  }
 
-  constructor(private router: Router) {
-    // Load users from localStorage or create default super admin
-    const storedUsers = localStorage.getItem('users');
-    if (storedUsers) {
-      this.users = JSON.parse(storedUsers);
-    } else {
-      const superAdmin: User = {
-        id: uuidv4(),
+  // Seed a super user if none exists
+  private ensureSeed() {
+    const users = this.readUsers();
+    if (!users.some(u => u.username === 'super')) {
+      const seed: User = {
+        id: 'u-super',
         username: 'super',
-        email: 'super@chat.com',
+        email: 'super@example.com',
+        // "super" is allowed (Role includes it)
         roles: ['super'],
-        groups: []
+        password: 'admin' // optional seed password
       };
-      this.users = [superAdmin];
-      this.save();
+      users.push(seed);
+      this.writeUsers(users);
     }
   }
 
-  // Save users to localStorage
-  private save() {
-    localStorage.setItem('users', JSON.stringify(this.users));
+  constructor() {
+    this.ensureSeed();
   }
 
-  // Login
-  login(username: string, password: string): boolean {
-    const user = this.users.find(u => u.username === username);
-    if (user && password === '123') { // simple password for assignment
-      this.currentUser = user;
-      localStorage.setItem('currentUser', JSON.stringify(user));
-      return true;
-    }
-    return false;
-  }
-
-  // Logout
-  logout(): void {
-    this.currentUser = null;
-    localStorage.removeItem('currentUser');
-    this.router.navigate(['/login']);
-  }
-
-  // Get logged in user
   getUser(): User | null {
-    if (!this.currentUser) {
-      this.currentUser = JSON.parse(localStorage.getItem('currentUser') || 'null');
-    }
-    return this.currentUser;
+    const raw = localStorage.getItem(this.CURRENT_KEY);
+    return raw ? (JSON.parse(raw) as User) : null;
   }
 
-  // Check roles
-  isSuper(): boolean {
-    return this.getUser()?.roles.includes('super') || false;
-  }
-
-  isGroupAdmin(): boolean {
-    return this.getUser()?.roles.includes('groupAdmin') || false;
-  }
-
-  // Create new user
-createUser(username: string, email: string, role: 'user' | 'groupAdmin' | 'super'): User {
-  const user: User = {
-    id: uuidv4(),
-    username,
-    email,
-    roles: [role],
-    groups: []
-  };
-  const users = this.getAllUsers();
-  users.push(user);
-  localStorage.setItem('users', JSON.stringify(users));
-  return user;
-}
-
-
-  // Promote user to groupAdmin or super
-  promoteUser(userId: string, role: 'groupAdmin' | 'super'): boolean {
-    const user = this.users.find(u => u.id === userId);
-    if (!user) return false;
-    if (!user.roles.includes(role)) user.roles.push(role);
-    this.save();
-    return true;
-  }
-
-  // Delete user
-  deleteUser(userId: string): boolean {
-    const index = this.users.findIndex(u => u.id === userId);
-    if (index === -1) return false;
-    this.users.splice(index, 1);
-    this.save();
-    return true;
-  }
-
-  // Add user to a group
-  addUserToGroup(userId: string, groupId: string): boolean {
-    const user = this.users.find(u => u.id === userId);
-    if (!user) return false;
-    if (!user.groups.includes(groupId)) user.groups.push(groupId);
-    this.save();
-    return true;
-  }
-
-  // Remove user from a group
-  removeUserFromGroup(userId: string, groupId: string): boolean {
-    const user = this.users.find(u => u.id === userId);
-    if (!user) return false;
-    user.groups = user.groups.filter(g => g !== groupId);
-    this.save();
-    return true;
-  }
-
-  // Get all users
   getAllUsers(): User[] {
-    return this.users;
+    return this.readUsers();
+  }
+
+  // ✅ Updated to accept password
+  login(username: string, password?: string): boolean {
+    const users = this.readUsers();
+    const u = users.find(x => x.username === username);
+    if (!u) return false;
+
+    // Require password only if user has one stored
+    if (u.password && password !== u.password) return false;
+
+    this.writeCurrent(u);
+    return true;
+  }
+
+  logout() { this.writeCurrent(null); }
+
+  // Accept both "super" and "superAdmin"
+  isSuper(): boolean {
+    const roles = this.getUser()?.roles || [];
+    return roles.includes('super') || roles.includes('superAdmin');
+  }
+  isGroupAdmin(): boolean {
+    const roles = this.getUser()?.roles || [];
+    return roles.includes('groupAdmin');
+  }
+
+  // Create user with any Role from union
+  createUser(username: string, email: string, role: Role = 'user', password?: string): User | null {
+    const users = this.readUsers();
+    if (users.some(u => u.username === username)) return null;
+    const u: User = {
+      id: 'u_' + Math.random().toString(36).slice(2, 9),
+      username,
+      email,
+      roles: [role],
+      password // optional
+    };
+    users.push(u);
+    this.writeUsers(users);
+    return u;
+  }
+
+  // Promote using Role (so 'super' | 'superAdmin' | 'groupAdmin' all valid)
+  promoteUser(userId: string, role: Role): void {
+    const users = this.readUsers();
+    const user = users.find(u => u.id === userId);
+    if (!user) return;
+    if (!user.roles.includes(role)) user.roles.push(role);
+    this.writeUsers(users);
+
+    // If promoting current user, refresh localStorage copy
+    const cur = this.getUser();
+    if (cur && cur.id === userId) this.writeCurrent(user);
+  }
+
+  deleteUser(userId: string): void {
+    let users = this.readUsers();
+    users = users.filter(u => u.id !== userId);
+    this.writeUsers(users);
+
+    const cur = this.getUser();
+    if (cur && cur.id === userId) this.logout();
   }
 }
+
+
 

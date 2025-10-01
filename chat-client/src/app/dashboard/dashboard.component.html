@@ -1,107 +1,170 @@
 <div class="dashboard">
-  <h2>Welcome, {{ greetingTitle }} 🎊</h2>
-  <p>Your Role: {{ roleDisplay }}</p>
+  <!-- WELCOME PANEL (now also contains the groups list) -->
+  <div class="hero">
+    <h2 style="margin:0 0 4px;">Welcome, {{ greetingTitle }} 🎊</h2>
+    <p style="margin:0 0 14px;">Your Role: {{ roleDisplay }}</p>
 
-  <!-- Super / Group Admin: create group -->
-  <div *ngIf="role.includes('super') || role.includes('groupAdmin')">
-    <input #newGroupName placeholder="New Group Name">
-    <button (click)="createGroup(newGroupName.value); newGroupName.value=''">
-      Add Group
-    </button>
+    <!-- Super / Group Admin: create group -->
+    <div *ngIf="role.includes('super') || role.includes('groupAdmin')" class="row">
+      <input #newGroupName class="input-framed" placeholder="New Group Name" />
+      <button class="btn-blue" (click)="createGroup(newGroupName.value); newGroupName.value=''">
+        Add Group
+      </button>
+    </div>
+
+    <!-- GROUPS LIST lives inside the same hero card -->
+    <div class="groups-in-hero">
+      <div *ngFor="let group of groups; trackBy: trackById" class="group-item">
+        <h3 (click)="selectGroup(group)" style="cursor:pointer;margin:0 0 8px;">{{ group.name }}</h3>
+
+        <!-- Normal User ONLY: request or pending -->
+        <div *ngIf="!isSuper">
+          <div *ngIf="!isMember(group) && !hasRequested(group)">
+            <button class="btn-blue" (click)="requestToJoin(group)">Request to Join</button>
+          </div>
+          <div *ngIf="hasRequested(group)">
+            <span>Request pending...</span>
+          </div>
+        </div>
+
+        <!-- Approvals (only if viewer can moderate THIS group) -->
+        <div *ngIf="canModerate(group) && ((group.joinRequests?.length || 0) > 0)">
+          <h4>Pending Join Requests:</h4>
+          <div *ngFor="let uid of (group.joinRequests || [])" class="row">
+            <span>{{ getUserById(uid)?.username || uid }}</span>
+            <button class="btn-green" (click)="approveJoinRequest(group, uid)">Approve</button>
+            <button class="btn-red" (click)="rejectJoinRequest(group, uid)">Reject</button>
+          </div>
+        </div>
+
+        <!-- Selected group panel -->
+        <div *ngIf="selectedGroup?.id === group.id" class="channels-panel panel-framed" style="margin-top:10px;">
+          <ul>
+            <li
+              *ngFor="let ch of visibleChannels; trackBy: trackById"
+              (click)="selectChannel(ch)"
+              style="cursor:pointer"
+            >
+              {{ ch.name }}
+              <button
+                *ngIf="canModerate(group)"
+                class="btn-orange"
+                (click)="removeChannel(group, ch.id); $event.stopPropagation()"
+              >
+                Remove
+              </button>
+            </li>
+          </ul>
+
+          <p *ngIf="visibleChannels.length === 0" style="margin:6px 0 10px;">
+            You don't have access to any channels in this group yet.
+          </p>
+
+          <!-- ONE ROW: Add channel (if GA/Super) + Leave (always if member) + Delete (if GA/Super) -->
+          <div class="action-row compact-actions">
+            <ng-container *ngIf="canModerate(group)">
+              <input #newChannelName class="input-framed" placeholder="New Channel Name" />
+              <button class="btn-green"
+                      (click)="addChannelToGroup(group, newChannelName.value); newChannelName.value=''">
+                Add Channel
+              </button>
+            </ng-container>
+
+          <!-- right side buttons wrapped to control their gap only -->
+          <div class="right-actions">
+            <button class="btn-blue" *ngIf="isMember(group)" (click)="leaveGroup(group)">Leave Group</button>
+            <button class="btn-red"  *ngIf="canModerate(group)" (click)="deleteGroup(group)">Delete Group</button>
+          </div>
+        </div>
+
+          <!-- CHANNEL MEMBERS (framed) -->
+          <div class="panel-framed" *ngIf="selectedChannel && canModerate(group)">
+            <h4>Channel Members: {{ selectedChannel.name }}</h4>
+            <div *ngIf="channelMemberIds(selectedChannel).length === 0">No channel members yet.</div>
+            <ul>
+              <li *ngFor="let uid of channelMemberIds(selectedChannel)">
+                {{ getUserById(uid)?.username || uid }}
+              </li>
+            </ul>
+          </div>
+
+          <!-- BAN AT CHANNEL -->
+          <div class="panel-framed" *ngIf="canModerate(group)">
+            <div class="ban-title">Ban at Channel</div>
+            <div class="row">
+              <input #banName class="input-framed" placeholder="Username to ban" />
+              <button
+                class="btn-red"
+                (click)="banUser(selectedGroup, selectedChannel, banName.value); banName.value=''"
+                [disabled]="!selectedChannel || !banName.value"
+              >
+                Ban
+              </button>
+            </div>
+
+            <ul>
+              <li *ngFor="let uname of (selectedChannel?.bannedUsernames || [])">
+                {{ uname }}
+                <button
+                  class="btn-green"
+                  (click)="unbanUser(selectedGroup, selectedChannel, uname)"
+                  [disabled]="!selectedChannel"
+                >
+                  Unban
+                </button>
+              </li>
+            </ul>
+
+            <small *ngIf="!selectedChannel" class="small">
+              Tip: click a channel name above to select it, then use Ban.
+            </small>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 
-  <!-- List Groups -->
-  <div *ngFor="let group of groups; trackBy: trackById">
-    <!-- Click group name to open its panel below -->
-    <h3 (click)="selectGroup(group)" style="cursor:pointer">{{ group.name }}</h3>
-
-    <!-- Normal User ONLY: request or pending -->
-    <div *ngIf="!isSuper">
-      <div *ngIf="!isMember(group) && !hasRequested(group)">
-        <button (click)="requestToJoin(group)">Request to Join</button>
-      </div>
-      <div *ngIf="hasRequested(group)">
-        <span>Request pending...</span>
-      </div>
-    </div>
-
-    <!-- Super can approve all; Group Admin only for groups they created -->
-    <div *ngIf="(isSuper || (isGroupAdmin && group.creatorId === currentUserId)) && ((group.joinRequests?.length || 0) > 0)">
-      <h4>Pending Join Requests:</h4>
-      <div *ngFor="let uid of (group.joinRequests || [])">
-        <span>{{ getUserById(uid)?.username || uid }}</span>
-        <button (click)="approveJoinRequest(group, uid)">Approve</button>
-        <button (click)="rejectJoinRequest(group, uid)">Reject</button>
-      </div>
-    </div>
-
-    <!-- Selected group panel (channels) -->
-    <div *ngIf="selectedGroup?.id === group.id">
-      <ul>
-        <li *ngFor="let ch of visibleChannels; trackBy: trackById"
-         (click)="selectChannel(ch)"
-        style="cursor:pointer">
-      {{ ch.name }}
-          <!-- Remove channel (Super OR group creator only) -->
-          <button *ngIf="isSuper || (isGroupAdmin && group.creatorId === currentUserId)"
-                  (click)="removeChannel(group, ch.id)">
-            Remove
-          </button>
-        </li>
-      </ul>
-      <p *ngIf="visibleChannels.length === 0">
-    You don't have access to any channels in this group yet.
-  </p>
-    <!-- Add channel: Super always; GA only if creator AND member -->
-      <div *ngIf="isSuper || (isGroupAdmin && group.creatorId === currentUserId && isMember(group))">
-        <input #newChannelName placeholder="New Channel Name">
-        <button (click)="addChannelToGroup(group, newChannelName.value); newChannelName.value=''">
-          Add Channel
-        </button>
-      </div>
-
-      <!-- Leave / Delete -->
-      <div style="margin: 6px 0;">
-        <button *ngIf="isMember(group)" (click)="leaveGroup(group)">Leave Group</button>
-        <button *ngIf="isSuper || (isGroupAdmin && group.creatorId === currentUserId)"
-                (click)="deleteGroup(group)">
-          Delete Group
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Chat Box -->
-  <div *ngIf="selectedChannel">
+  <!-- Chat Box (messages framed) -->
+  <div *ngIf="selectedChannel" class="chat-card" style="max-width:900px;margin:12px auto 0;">
     <h4>Channel: {{ selectedChannel.name }}</h4>
-    <div class="messages">
+
+    <div *ngIf="isBannedHere" class="ban-banner">
+      You are banned from this channel. You can read past messages but cannot send new ones.
+    </div>
+
+    <div class="messages panel-framed">
       <div *ngFor="let msg of messages">
         <strong>{{ msg.username }}:</strong> {{ msg.content }}
       </div>
     </div>
-    <input [(ngModel)]="newMessage" placeholder="Type message...">
-    <button (click)="sendMessage()">Send</button>
+
+    <div class="row">
+      <input [(ngModel)]="newMessage" class="input-framed" placeholder="Type message..." [disabled]="isBannedHere" />
+      <button class="btn-blue" (click)="sendMessage()" [disabled]="isBannedHere">Send</button>
+    </div>
   </div>
 
-  <!-- SUPER ADMIN PANEL -->
+  <!-- SUPER ADMIN PANEL (unchanged) -->
   <div *ngIf="role.includes('super')" class="super-admin-panel">
-    <h2>👑 Super Admin Panel</h2>
+    <h2>Super Admin Panel</h2>
 
-    <!-- Create New User -->
     <h3>Create New User</h3>
-    <input [(ngModel)]="newUsername" placeholder="Username">
-    <input [(ngModel)]="newEmail" placeholder="Email">
-    <select [(ngModel)]="newRole">
-      <option value="user">User</option>
-      <option value="groupAdmin">Group Admin</option>
-      <option value="super">Super Admin</option>
-    </select>
-    <button (click)="createUser()">Create User</button>
+    <div class="create-user-panel">
+      <div class="row">
+        <input [(ngModel)]="newUsername" class="input-framed-lg" placeholder="Username" />
+        <input [(ngModel)]="newEmail" class="input-framed-lg" placeholder="Email" />
+        <select [(ngModel)]="newRole" class="input-framed-lg">
+          <option value="user">User</option>
+          <option value="groupAdmin">Group Admin</option>
+          <option value="super">Super Admin</option>
+        </select>
+        <button class="btn-blue" (click)="createUser()">Create User</button>
+      </div>
+    </div>
 
-    <!-- Manage Existing Users -->
     <h3>Manage Users</h3>
-    <table border="1" cellpadding="5">
-      <tr>
+    <table cellpadding="5">
+      <tr class="table-head">
         <th>Username</th>
         <th>Email</th>
         <th>Roles</th>
@@ -112,13 +175,33 @@
         <td>{{ u.email }}</td>
         <td>{{ u.roles.join(', ') }}</td>
         <td>
-          <button (click)="promoteUser(u, 'groupAdmin')">Promote to Group Admin</button>
-          <button (click)="promoteUser(u, 'super')">Promote to Super</button>
-          <button (click)="deleteUser(u)">Delete</button>
+          <button class="btn-green" (click)="promoteUser(u, 'groupAdmin')">Promote to Group Admin</button>
+          <button class="btn-blue"  (click)="promoteUser(u, 'super')">Promote to Super</button>
+          <button class="btn-red"   (click)="deleteUser(u)">Delete</button>
         </td>
       </tr>
     </table>
+
+    <h3 style="margin-top:16px;">Moderation Reports</h3>
+    <div *ngIf="!reports?.length" style="opacity:.8">No pending reports.</div>
+    <ul *ngIf="reports?.length">
+      <li *ngFor="let r of reports" style="margin-bottom:8px;">
+        <div>
+          <strong>{{ r.reason || 'Ban issued' }}</strong>
+          — Target:
+          <code>{{ r.username || r.userId }}</code>
+          — Group: <code>{{ r.groupName || r.groupId }}</code>
+          — Channel: <code>{{ r.channelName || r.channelId }}</code>
+          — By: <code>{{ r.actorUsername || r.actorUserId }}</code>
+          — <small>{{ r.createdAt | date:'short' }}</small>
+        </div>
+        <button class="btn-green" (click)="resolveReport(r)">Mark Resolved</button>
+      </li>
+    </ul>
   </div>
 
-  <button (click)="logout()">Logout</button>
+  <div class="logout-center">
+    <button class="btn-red btn-wide" (click)="logout()">Logout</button>
+  </div>
 </div>
+

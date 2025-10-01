@@ -1,3 +1,4 @@
+// src/app/dashboard/dashboard.component.ts
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -28,49 +29,103 @@ export class DashboardComponent implements OnInit {
   messages: Message[] = [];
   newMessage = '';
 
-  // Super admin user management (Phase 1 local)
+  // Super admin user management (local Phase 1)
   allUsers: User[] = [];
   newUsername = '';
   newEmail = '';
   newRole: 'user' | 'groupAdmin' | 'super' = 'user';
 
+  // Super Admin sees moderation reports
+  reports: any[] = [];
+
   /** ---------- Role helpers ---------- */
   get isSuper(): boolean {
-    return this.authService.isSuper();
+    const r = this.role || [];
+    return r.includes('super') || r.includes('superAdmin');
   }
   get isGroupAdmin(): boolean {
-    return this.authService.isGroupAdmin();
+    const r = this.role || [];
+    return r.includes('groupAdmin');
   }
-  get currentUserId(): string {
-    return this.currentUser?.id ?? '';
+
+  // Is the current user a member of this group?
+  isMember(group: any): boolean {
+    const uid = this.currentUserId;
+    return Array.isArray(group?.users) ? group.users.includes(uid) : false;
   }
-  get roleDisplay(): string {
-    return (this.role || []).join(', ');
+
+  // Has the current user requested to join?
+  hasRequested(group: any): boolean {
+    const uid = this.currentUserId;
+    return Array.isArray(group?.joinRequests) ? group.joinRequests.includes(uid) : false;
   }
+
+  // Can the current user moderate this group (Super OR GroupAdmin who created it)?
+  canModerate(group: any): boolean {
+    if (!group) return false;
+    if (this.isSuper) return true;
+    return this.isGroupAdmin && group.creatorId === this.currentUserId;
+  }
+
+  /** Am I banned in the currently selected channel? (channel-only per assignment) */
+  get isBannedHere(): boolean {
+    if (!this.selectedGroup || !this.selectedChannel) return false;
+    const byIdChan   = (this.selectedChannel.bannedUsers || []).includes(this.currentUserId);
+    const byNameChan = (this.selectedChannel as any).bannedUsernames?.includes(this.username) || false;
+    return byIdChan || byNameChan;
+  }
+
+  /** Members helpers */
+  groupMemberIds(group: any): string[] {
+    return (group?.users && Array.isArray(group.users) ? group.users : [])
+      .concat(group?.members && Array.isArray(group.members) ? group.members : [])
+      .filter((v: string, i: number, a: string[]) => a.indexOf(v) === i);
+  }
+  channelMemberIds(ch: any): string[] {
+    const members: string[] = Array.isArray(ch?.members) ? ch.members : [];
+    const bannedNames: string[] = Array.isArray((ch as any)?.bannedUsernames)
+      ? (ch as any).bannedUsernames
+      : [];
+
+    return members.filter(id => {
+      const uname = this.getUserById(id)?.username || '';
+      return !bannedNames.includes(uname);
+    });
+   }
+
+  /** Optional debug block */
+  get debug(): any {
+    return {
+      isSuper: this.isSuper,
+      isGroupAdmin: this.isGroupAdmin,
+      role: this.role,
+      selectedGroup: this.selectedGroup?.id,
+      selectedChannel: this.selectedChannel?.id,
+    };
+  }
+
+  get currentUserId(): string { return this.currentUser?.id ?? ''; }
+  get roleDisplay(): string { return (this.role || []).join(', '); }
   get greetingTitle(): string {
-  if (this.isSuper) return 'Super Admin';
-  if (this.isGroupAdmin) return 'Group Admin';
-  return 'User';
-}
+    if (this.isSuper) return 'Super Admin';
+    if (this.isGroupAdmin) return 'Group Admin';
+    return 'User';
+  }
 
   trackById(_: number, item: { id: string }) { return item.id; }
 
-  /** Channels user can see in the selected group */
+  /** Visible channels (respect channel bans unless super) */
   get visibleChannels(): Channel[] {
     if (!this.selectedGroup) return [];
-    const chans = this.selectedGroup.channels || [];
-    if (this.isSuper) return chans; // super sees all channels
-    return chans.filter(ch => (ch.members || []).includes(this.currentUserId));
+    const g = this.selectedGroup;
+    if (this.isSuper) return g.channels || [];
+    return (g.channels || []).filter(ch => {
+      const chanBanned = (ch.bannedUsers || []).includes(this.currentUserId);
+      return !chanBanned && (ch.members || []).includes(this.currentUserId);
+    });
   }
 
-  /** ---------- Membership helpers ---------- */
-  isMember(group: Group): boolean {
-    return !!group.users?.includes(this.currentUserId);
-  }
-  hasRequested(group: Group): boolean {
-    return !!group.joinRequests?.includes(this.currentUserId);
-  }
-
+  /** ---------- Lifecycle ---------- */
   constructor(
     private authService: AuthService,
     private groupService: GroupService,
@@ -84,7 +139,6 @@ export class DashboardComponent implements OnInit {
       this.router.navigate(['/login']);
       return;
     }
-
     this.currentUser = user;
     this.username = user.username;
     this.role = user.roles || [];
@@ -93,24 +147,16 @@ export class DashboardComponent implements OnInit {
 
     if (this.isSuper) {
       this.allUsers = this.authService.getAllUsers();
+      this.loadReports(); // fetch moderation reports for super admins
     }
   }
 
-  /** Fetch groups from server then filter by role (no local pushes) */
   private loadGroups(): void {
     this.groupService.getGroups().subscribe({
       next: (allGroups) => {
-        if (this.isSuper) {
-          this.groups = allGroups;             // Super sees everything
-        } else if (this.isGroupAdmin) {
-          // GA sees groups they created OR belong to (and can request to join others)
-          this.groups = allGroups;
-        } else {
-          // Users see all groups (request/approve flow controls access)
-          this.groups = allGroups;
-        }
+        this.groups = allGroups || [];
 
-        // Rebind selections to fresh instances
+        // Re-bind selections to fresh instances
         if (this.selectedGroup) {
           this.selectedGroup = this.groups.find(g => g.id === this.selectedGroup!.id) ?? null;
         }
@@ -124,8 +170,7 @@ export class DashboardComponent implements OnInit {
           }
         }
       },
-      error: (err) => {
-        console.error('Failed to load groups', err);
+      error: () => {
         this.groups = [];
         this.selectedGroup = null;
         this.selectedChannel = null;
@@ -134,18 +179,32 @@ export class DashboardComponent implements OnInit {
     });
   }
 
-  /** Simple helper that just re-fetches from server. */
-  private refreshGroups(): void {
-    this.loadGroups();
+  private refreshGroups(): void { this.loadGroups(); }
+
+  /** ---------- Reports (Super Admin) ---------- */
+  loadReports() {
+    if (!this.isSuper) return;
+    this.groupService.getReports().subscribe({
+      next: r => this.reports = r || [],
+      error: () => this.reports = []
+    });
   }
 
+  resolveReport(r: any) {
+    if (!this.isSuper) return;
+    this.groupService.resolveReport(r.id).subscribe({
+      next: () => this.loadReports()
+    });
+  }
+
+  /** ---------- Auth ---------- */
   logout() {
     this.authService.logout();
+    this.router.navigate(['/login']);
   }
 
-  /** ---------- Group & Channel selection ---------- */
+  /** ---------- Selection ---------- */
   selectGroup(group: Group) {
-    // always use the instance from the current groups array
     this.selectedGroup = this.groups.find(g => g.id === group.id) ?? group;
     this.selectedChannel = null;
     this.messages = [];
@@ -154,9 +213,11 @@ export class DashboardComponent implements OnInit {
   selectChannel(channel: Channel) {
     if (!this.selectedGroup) return;
 
-    // membership guard (Super bypasses)
-    if (!this.isSuper && !(channel.members || []).includes(this.currentUserId)) {
-      alert('You are not a member of this channel.');
+    const isChanBanned = (channel.bannedUsers || []).includes(this.currentUserId);
+    const isMember = (channel.members || []).includes(this.currentUserId);
+
+    if (!this.isSuper && (isChanBanned || !isMember)) {
+      alert('You are not allowed to access this channel.');
       return;
     }
 
@@ -165,13 +226,9 @@ export class DashboardComponent implements OnInit {
   }
 
   private loadMessages(groupId: string, channelId: string) {
-    // If ChatService uses HttpClient (Observable)
     this.chatService.getMessages(groupId, channelId).subscribe({
       next: (msgs) => this.messages = msgs || [],
-      error: (err) => {
-        console.error('Load messages failed', err);
-        this.messages = [];
-      }
+      error: () => { this.messages = []; }
     });
   }
 
@@ -179,9 +236,11 @@ export class DashboardComponent implements OnInit {
   sendMessage() {
     if (!this.selectedGroup || !this.selectedChannel || !this.newMessage.trim()) return;
 
-    // membership guard (Super bypass)
-    if (!this.isSuper && !(this.selectedChannel.members || []).includes(this.currentUserId)) {
-      alert('You are not a member of this channel.');
+    const isChanBanned = (this.selectedChannel.bannedUsers || []).includes(this.currentUserId);
+    const isMember = (this.selectedChannel.members || []).includes(this.currentUserId);
+
+    if (!this.isSuper && (isChanBanned || !isMember)) {
+      alert('You are not allowed to post in this channel.');
       return;
     }
 
@@ -192,11 +251,18 @@ export class DashboardComponent implements OnInit {
           this.newMessage = '';
           this.loadMessages(this.selectedGroup!.id, this.selectedChannel!.id);
         },
-        error: (err) => console.error('Send message failed', err)
+        error: (err) => {
+          if (err?.status === 403) {
+            const msg = err?.error?.error || 'You are banned from this channel.';
+            alert(msg);
+          } else {
+            alert('Failed to send message. Please try again.');
+          }
+        }
       });
   }
 
-  /** ---------- Super Admin: user management (local Phase 1) ---------- */
+  /** ---------- Users (Super local) ---------- */
   createUser() {
     if (!this.newUsername || !this.newEmail) return;
     const user = this.authService.createUser(this.newUsername, this.newEmail, this.newRole);
@@ -204,70 +270,54 @@ export class DashboardComponent implements OnInit {
     this.newUsername = '';
     this.newEmail = '';
   }
-
   promoteUser(user: User, role: 'groupAdmin' | 'super') {
     this.authService.promoteUser(user.id, role);
   }
-
   deleteUser(user: User) {
     this.authService.deleteUser(user.id);
     this.allUsers = this.allUsers.filter(u => u.id !== user.id);
   }
 
-  /** ---------- Group management (server) ---------- */
+  /** ---------- Groups & Channels ---------- */
   createGroup(groupName: string) {
     if (!groupName.trim()) return;
     this.groupService.createGroup(groupName.trim(), this.currentUser.id).subscribe({
-      next: () => this.refreshGroups(),               // don’t push locally — refetch
-      error: (err) => console.error('Create group failed', err)
+      next: () => this.refreshGroups()
     });
   }
 
   addChannelToGroup(group: Group, channelName: string) {
     if (!channelName.trim()) return;
-
-    if (!(this.isSuper || (this.isGroupAdmin && group.creatorId === this.currentUserId))) {
-      alert('You are not allowed to add channels to this group.');
-      return;
-    }
+    if (!this.canModerate(group)) { alert('Not allowed to add channels to this group.'); return; }
 
     this.groupService.createChannel(group.id, channelName.trim()).subscribe({
       next: () => {
         const keepId = group.id;
         this.refreshGroups();
-        // re-select the group after refresh
         setTimeout(() => {
           const g = this.groups.find(x => x.id === keepId);
           if (g) this.selectGroup(g);
         });
-      },
-      error: (err) => console.error('Create channel failed', err)
+      }
     });
   }
 
-  /** ---------- Membership requests (server) ---------- */
   requestToJoin(group: Group) {
     this.groupService.requestToJoin(group.id, this.currentUser.id).subscribe({
-      next: () => this.refreshGroups(),
-      error: (err) => console.error('Request to join failed', err)
+      next: () => this.refreshGroups()
     });
   }
-
   approveJoinRequest(group: Group, userId: string) {
     this.groupService.approveJoinRequest(group.id, userId).subscribe({
-      next: () => this.refreshGroups(),
-      error: (err) => console.error('Approve failed', err)
+      next: () => this.refreshGroups()
     });
   }
-
   rejectJoinRequest(group: Group, userId: string) {
     this.groupService.rejectJoinRequest(group.id, userId).subscribe({
-      next: () => this.refreshGroups(),
-      error: (err) => console.error('Reject failed', err)
+      next: () => this.refreshGroups()
     });
   }
 
-  /** ---------- Leave / Delete / Remove channel (server) ---------- */
   leaveGroup(group: Group) {
     this.groupService.leaveGroup(group.id, this.currentUser.id).subscribe({
       next: (res) => {
@@ -281,17 +331,12 @@ export class DashboardComponent implements OnInit {
         } else {
           alert('Unable to leave the group.');
         }
-      },
-      error: (err) => console.error('Leave group failed', err)
+      }
     });
   }
 
   deleteGroup(group: Group) {
-    const canDelete = this.isSuper || (this.isGroupAdmin && group.creatorId === this.currentUserId);
-    if (!canDelete) {
-      alert('You are not allowed to delete this group.');
-      return;
-    }
+    if (!this.canModerate(group)) { alert('Not allowed to delete this group.'); return; }
 
     this.groupService.deleteGroup(group.id).subscribe({
       next: (res) => {
@@ -305,17 +350,12 @@ export class DashboardComponent implements OnInit {
         } else {
           alert('Unable to delete this group.');
         }
-      },
-      error: (err) => console.error('Delete group failed', err)
+      }
     });
   }
 
   removeChannel(group: Group, channelId: string) {
-    const canRemove = this.isSuper || (this.isGroupAdmin && group.creatorId === this.currentUserId);
-    if (!canRemove) {
-      alert('You are not allowed to remove channels in this group.');
-      return;
-    }
+    if (!this.canModerate(group)) { alert('Not allowed to remove channels in this group.'); return; }
 
     this.groupService.removeChannel(group.id, channelId).subscribe({
       next: (res) => {
@@ -334,13 +374,51 @@ export class DashboardComponent implements OnInit {
         } else {
           alert('Unable to remove channel.');
         }
-      },
-      error: (err) => console.error('Remove channel failed', err)
+      }
     });
   }
 
-  /** Utility (Super panel) */
+  /** Ban/unban by username (Ban Management) */
+  banUser(group: Group | null, channel: Channel | null, username: string) {
+    if (!group || !channel) { alert('Pick a channel first (click a channel name), then ban.'); return; }
+    if (!this.canModerate(group)) { alert('Not allowed to ban in this channel.'); return; }
+    const name = (username || '').trim();
+    if (!name) { alert('Enter a username'); return; }
+
+    this.groupService
+      .banUserInChannel(group.id, channel.id, undefined, name)
+      .subscribe({
+        next: () => {
+          if (!this.isSuper && this.isGroupAdmin) {
+            this.groupService.reportToSuper({
+              groupId: group.id,
+              channelId: channel.id,
+              username: name,
+              actorUserId: this.currentUserId,
+              actorUsername: this.username,
+              reason: 'Channel ban by username (GA)'
+            }).subscribe(() => {
+              if (this.isSuper) this.loadReports();
+            });
+          }
+          this.refreshGroups();
+        }
+      });
+  }
+
+  unbanUser(group: Group | null, channel: Channel | null, username: string) {
+    if (!group || !channel) { alert('Pick a channel first (click a channel name), then unban.'); return; }
+    if (!this.canModerate(group)) { alert('Not allowed to unban in this channel.'); return; }
+    const name = (username || '').trim();
+    if (!name) { alert('Enter a username'); return; }
+    this.groupService
+      .unbanUserInChannel(group.id, channel.id, undefined, name)
+      .subscribe({ next: () => this.refreshGroups() });
+  }
+
+  /** Utility */
   getUserById(id: string): User | undefined {
     return this.authService.getAllUsers().find(u => u.id === id);
   }
 }
+
