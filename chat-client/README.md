@@ -1,294 +1,182 @@
-Chat System – Phase 1
-
-Name: Sukhdeep Kaur (s5388440)
-Software Frameworks (3813ICT_3255)
-
-
-Version Control (Git & GitHub)
-
-Git was used throughout the development of this project to ensure incremental progress, traceability, and collaboration-readiness. The project is hosted on a private GitHub repository, with my tutor added as a collaborator.
-
-Repository Layout
-
-chat-client/ → Angular front end
-
-chat-server/ → Node.js/Express back end
-
-README.md → Documentation
-
-.gitignore → Ensures node_modules/ and build artifacts are excluded
-
-Workflow
-
-Development started with git init inside the project folders.
-
-Frequent commits were made with descriptive messages to capture incremental changes. Examples:
-
-feat(auth): add login/logout service
-
-fix(groups): persist join requests in localStorage
-
-refactor(dashboard): role-based UI conditions
-
-GitHub was used as the remote repository (git remote add origin ...).
-
-The main branch was kept stable, while feature experiments were committed directly.
-
-Regular git push ensured GitHub history reflected the ongoing work.
-
-Benefits
-
-Provided a timeline of progress for my tutor/marker.
-
-Allowed me to rollback if needed.
-
-Ensured a clean and logical repository layout as required in the assignment.
-Introduction
-
-This repository contains the implementation for Assignment Phase 1 of the Chat System project.
-The system allows users to communicate in groups and channels with three levels of permissions:
-
-Super Admin
-
-Group Admin
-
-User
-
-The stack used is the MEAN stack (MongoDB, Express, Angular, Node.js), along with placeholders for Socket.io and Peer.js (to be introduced in Phase 2). For Phase 1, data is persisted using JSON text files on the server.
-
---Git Repository Organization
-/chat-client   # Angular frontend
-/chat-server   # Node/Express backend
-README.md      # Documentation
-
-Git usage
-
-Frequent commits were made to track development progress.
-
-Commit messages follow a meaningful pattern, e.g.:
-
-feat(auth): add login/logout
-
-feat(groups): persist groups to JSON
-
-fix(ui): prevent duplicate join buttons
-
-Branching strategy: main branch kept stable, experimental features developed in feature/* branches.
-
+**Chat System – Phase 1 (3813ICT Assignment 1)**
+**Table of Contents**
+-- Overview
+-- Repository Layout
+-- Git Usage
 -- Data Structures
-User
-{
-  "id": "uuid",
-  "username": "string",
-  "email": "string",
-  "roles": ["super" | "groupAdmin" | "user"],
-  "groups": ["groupId1", "groupId2"]
-}
-
-Group
-{
-  "id": "uuid",
-  "name": "string",
-  "creatorId": "userId",
-  "users": ["userId1", "userId2"],
-  "channels": ["channelId1", "channelId2"],
-  "joinRequests": ["userId3"]
-}
-
-Channel
-{
-  "id": "uuid",
-  "name": "string",
-  "messages": [ { "username": "string", "content": "string", "timestamp": 12345678 } ]
-}
-
-Message
-{
-  "username": "string",
-  "content": "string",
-  "timestamp": "number"
-}
-
---Angular Architecture
-
-Components
-
-LoginComponent: Handles authentication.
-
-DashboardComponent: Main UI showing groups, channels, and messages.
-
-Services
-
-AuthService: Manages login/logout, user creation, promotions.
-
-GroupService: Manages groups, channels, join requests.
-
-ChatService: Handles message send/retrieve.
-
-Models
-
-User, Group, Channel, Message.
-
-Routing
-
-/login → Login page
-
-/dashboard → Main chat dashboard
-
-⚙️ Node/Express Architecture
-
-Files
-
-index.js: Main server file.
-
-data.json: Persistent storage of users, groups, channels.
-
-Modules/Functions
-
-loadData(): Reads from JSON file at startup.
-
-saveData(data): Writes updates back to JSON file.
-
-Routes handle authentication, user management, groups, and channels.
-
-Global Variables
-
-data: Object storing users, groups, channels in memory.
-
---REST API Routes
-Method	Route	Body	Returns	Purpose
-POST	/api/auth/login	{ username, password }	{ user }	Authenticate user
-GET	/api/users	–	[users]	List all users
-POST	/api/users	{ username, email, roles }	{ user }	Create new user
-DELETE	/api/users/:id	–	{ success }	Delete user
-POST	/api/users/:id/promote	{ role }	{ user }	Promote user role
-GET	/api/groups	–	[groups]	List all groups
-POST	/api/groups	{ name, creatorId }	{ group }	Create new group
-POST	/api/groups/:id/channels	{ name }	{ channel }	Create channel in group
-POST	/api/groups/:id/join	{ userId }	{ success }	Request to join
-POST	/api/groups/:id/approve	{ userId }	{ success }	Approve join request
-POST	/api/groups/:id/reject	{ userId }	{ success }	Reject join request
-POST	/api/groups/:id/leave	{ userId }	{ success }	Leave group
-GET	/api/groups/:id/channels/:channelId/messages	–	[messages]	Get messages
-POST	/api/groups/:id/channels/:channelId/messages	{ username, content }	{ message }	Send message
+-- Angular Architecture
+-- Node.js Server Architecture
+-- REST API Reference
 -- Client–Server Interaction
+-- Local Storage
+-- screenshots
+-- How to Run
 
-Login
+**Overview**
+This project implements Phase 1 of a MEAN-stack chat system with authentication and role-based UI.
 
-Angular → POST /api/auth/login
+**Roles:**
+Super Admin → manage all users, promote admins, remove users
+Group Admin → manage groups, channels, ban/unban users
+User → join groups/channels, send messages
 
-Server validates user and returns user object.
+Phase 1 uses JSON + localStorage instead of MongoDB. Phase 2 will add sockets and MongoDB.
 
-Group/Channel Loading
+**in short ## Repository Layout**
+  chat-client/` → Angular frontend
+  chat-server/` → Express backend with data.json persistence
+  docs/` → README.md + Word copy
 
-Angular → GET /api/groups
+**Repository layout***
+chat-system-phase1/
+├─ chat-client/      # Angular frontend
+│  ├─ src/app/
+│  │  ├─ services/ (api.service.ts, auth.service.ts)
+│  │  ├─ models/   (user.ts, group.ts, channel.ts)
+│  │  ├─ pages/    (login, dashboard, channel, admin)
+│  │  └─ shared/   (header component)
+├─ chat-server/      # Node.js + Express backend
+│  ├─ index.js
+│  ├─ data.json
+│  └─ package.json
+└─ docs/
+   ├─ README.md
+   └─ README.docx
 
-Groups filtered based on user role/membership.
+## Git Usage
+- Branching:
+  - main branch contains stable working code
+  - feature branches are used for new features (e.g. feature/ban-user, feature/ui-cleanup)
+- Commits:
+  - Made frequently during development (not all on one day)
+  - Commit messages are descriptive and follow a pattern:
+    - feat(auth): add localStorage persistence
+    - fix(groups): prevent duplicate group names
+    - docs(readme): add REST API table
+- Collaboration:
+  - Each feature was developed and tested on its own branch
+  - Merged into `main` only after testing
 
-Join Request
+**Data Structures**
+**User**
+{
+  id: string,
+  username: string,
+  email: string,
+  roles: string[],     // ["USER"], ["GROUP_ADMIN"], ["SUPER_ADMIN"]
+  groups: string[]     // group IDs
+}
 
-Angular → POST /api/groups/:id/join
+**Group**
+{
+  id: string,
+  name: string,
+  creatorId: string,
+  users: string[],
+  channels: Channel[]
+}
 
-Group Admin/Super can approve or reject.
+**Channel**
+{
+  id: string,
+  name: string,
+  members: string[],
+  messages: Message[],
+  bannedUserIds: string[],
+  bannedUsernames: string[]
+}
+Banned users are stored in bannedUsernames[] (and bannedUserIds[] if available). When posting messages, backend checks this list and rejects with HTTP 403
 
-Messaging
+**Message**
+{
+  username: string,
+  content: string,
+  timestamp: number
+}
 
-Angular → POST /api/groups/:id/channels/:channelId/messages
+**Angular Architecture
+Components**
+login.component` → input: username/password; output: login event → calls `AuthService`.
+dashboard.component` → input: logged-in user; output: navigation to channels.
+channel.component` → input: groupId, channelId; output: chat messages (via ChatService), admin ban/unban.
+admin.component` → input: none (Super/Group admin only); output: create/delete users, groups, channels.
+header.component` → input: current user; output: logout.
 
-Server saves to data.json, reloads messages via GET.
 
---Data Storage
+**Services**
+auth.service.ts` → manages localStorage, login/logout, role checks.
+api.service.ts` → handles REST calls.
+chat.service.ts` → (Phase 2) manages socket.io/PeerJS connections.
 
-Server: Data is stored in data.json.
+**Models**
+user.ts, group.ts, channel.ts
 
-Every change (user creation, group/channel creation, join, messages) is immediately written to disk with saveData().
+**Node.js Server Architecture**
+-- index.js
+-- Uses express, cors, uuid
+-- Reads/writes data.json on every change
+-- Routes grouped by: health, users, groups, channels, messages, bans
 
-On server start, loadData() initializes in-memory structures.
+**Functions**
+load() → load DB from JSON
+save(db) → write DB to JSON
 
---Client–Server Interaction & UI Updates (Phase 1 workflow)
+**REST API Reference**
+| Method | Route                                        | Params/Body                            | Returns       | Role  |
+| ------ | -------------------------------------------- | -------------------------------------- | ------------- | ----- |
+| GET    | `/health`                                    | –                                      | `{ok:true}`   | All   |
+| GET    | `/groups`                                    | –                                      | all groups    | All   |
+| POST   | `/groups`                                    | `{name, creatorId}`                    | new group     | Admin |
+| DELETE | `/groups/:id`                                | –                                      | `{ok:true}`   | Admin |
+| POST   | `/groups/:id/channels`                       | `{name}`                               | new channel   | Admin |
+| DELETE | `/groups/:gid/channels/:cid`                 | –                                      | `{ok:true}`   | Admin |
+| POST   | `/groups/:gid/join`                          | `{userId}`                             | `{ok:true}`   | User  |
+| PUT    | `/groups/:gid/approve/:uid`                  | –                                      | updated group | Admin |
+| PUT    | `/groups/:gid/reject/:uid`                   | –                                      | updated group | Admin |
+| GET    | `/messages?groupId&channelId`                | query params                           | messages\[]   | All   |
+| POST   | `/messages`                                  | `{groupId,channelId,username,content}` | message       | All   |
+| POST   | `/groups/:gid/channels/:cid/ban`             | `{userId?, username?}`                 | channel       | Admin |
+| DELETE | `/groups/:gid/channels/:cid/ban/username/:u` | –                                      | channel       | Admin |
+| DELETE | `/groups/:gid/channels/:cid/ban/user/:id`    | –                                      | channel       | Admin |
+| GET    | `/groups/:gid/channels/:cid/banned`          | –                                      | banned lists  | Admin |
 
-Because Phase-1 uses LocalStorage, “server-side” below refers to GroupService/AuthService state persisted to LocalStorage. The following describes how each UI action changes data and updates views:
 
-Authentication
+**Client–Server Interaction**
+Login → auth.service.ts → localStorage → role-based UI.
+Groups & channels load from REST API (api.service.ts).
+When admin bans a user → Angular ChannelComponent calls banUserFromChannel() → server updates bannedUsernames → future POST /messages rejects with 403.
+JSON always saved to data.json.
 
-LoginComponent calls AuthService.login(username, password).
+**Local Storage**
+Key: currentUser → {username, role, groups[]}
+On login: saved to localStorage.
+On logout: cleared.
+Guards: UI only shows buttons allowed by role.
 
-On success, currentUser is saved to LocalStorage and the app navigates to /dashboard.
+**Screenshots**
 
-DashboardComponent reads currentUser and loads groups via GroupService.loadGroups().
+📸 Add screenshots for:
 
-Group Visibility
+Login page
+Dashboard (groups/channels)
+Channel view (chat + ban/unban panel)
+Admin panel (Super Admin creating users/groups)
+data.json file after changes
+Network tab showing 403 when banned user tries to send a message
 
-Super Admin: sees all groups (groups = getGroups()).
+**How to Run**
+Backend
+cd chat-system-phase1/chat-server
+npm install
+npm start
+# API at http://localhost:4000
 
-Group Admin: sees groups they created and any they joined.
+Frontend
+cd chat-system-phase1/chat-client/chat-client
+npm install
+npx ng serve -o
+# UI at http://localhost:4200
 
-User: sees all groups but cannot access channels unless a member (will see “Request to Join”).
 
-Request to Join
 
-User clicks Request to Join → GroupService.requestToJoin(groupId, userId) pushes userId into group.joinRequests and persists with saveGroups().
 
-Dashboard re-reads groups (or the component state updates) and shows “Request pending…” for that group.
-
-Approve / Reject
-
-Super or Group Creator (GA) opens the group panel and sees pending requests.
-
-Clicking Approve → GroupService.approveJoinRequest(groupId, userId):
-
-Removes userId from joinRequests
-
-Adds userId to users
-
-(Optional) Adds to each channel’s members by default, or keeps channels opt-in
-
-Calls saveGroups()
-
-Component refreshes its groups list; the user now sees channels for groups they’re in.
-
-Channels
-
-Admins (Super or GA of that group) can add/remove channels:
-
-Add → GroupService.createChannel(groupId, name) → push to group.channels → saveGroups() → UI visibleChannels updates.
-
-Remove → GroupService.removeChannel(groupId, channelId, requesterId) → saveGroups() → UI updates.
-
-Access Control & Visibility
-
-A user cannot see channels unless:
-
-They are in group.users, and
-
-Their userId is in channel.members (or the app auto-adds members on approve).
-
-Dashboard computes visibleChannels = channels where currentUser.id ∈ channel.members.
-
-Messaging
-
-Selecting a channel calls ChatService.getMessages(groupId, channelId) to display messages[].
-
-Sending a message calls ChatService.sendMessage(...) which appends {username, content, timestamp} to that channel’s messages[], then persists via GroupService.saveGroups().
-
-The messages panel rebinds to the updated array and shows the new message.
-
-Leaving / Deleting
-
-Leave Group: GroupService.leaveGroup(groupId, userId) removes membership and channel access; saveGroups(); UI hides the group’s channels for that user.
-
-Delete Group: allowed for Super or group creator only; removes the group; UI refreshes group list.
-
-Conclusion
-
-This Phase 1 implementation provides:
-
-User authentication and role-based UI.
-
-Group and channel management.
-
-Join request and approval workflow.
-
-Message storage and retrieval.
-
-LocalStorage persistence (to be replaced by MongoDB in Phase 2).
