@@ -1,79 +1,77 @@
-// index.js
+// chat-server/index.js
 const express = require('express');
 const cors = require('cors');
-const fs = require('fs');
-const path = require('path');
 const { v4: uuid } = require('uuid');
+const { connectMongo, getDb } = require('./mongo');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-const DATA_FILE = path.join(__dirname, 'data.json');
-
-function load() {
-  if (!fs.existsSync(DATA_FILE)) {
-    const seed = { users: [], groups: [] };
-    fs.writeFileSync(DATA_FILE, JSON.stringify(seed, null, 2));
-    return seed;
+/** -------------------- Mongo -------------------- **/
+(async () => {
+  try {
+    await connectMongo();
+    // ensure collections exist & minimal indexes you may want later
+    const db = getDb();
+    await db.collection('groups').createIndex({ id: 1 }, { unique: true });
+    await db.collection('reports').createIndex({ id: 1 }, { unique: true });
+    console.log('[init] indexes ensured');
+  } catch (err) {
+    console.error('Failed to connect to Mongo:', err);
+    process.exit(1);
   }
-  return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-}
-function save(db) {
-  fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2));
+})();
+
+/** -------------------- Helpers -------------------- **/
+function now() { return Date.now(); }
+
+async function getGroup(groupId) {
+  const db = getDb();
+  return db.collection('groups').findOne({ id: groupId });
 }
 
-function addReport({ groupId, channelId, targetUserId, targetUsername, actorUserId, reason = 'ban-in-channel' }) {
+async function saveGroup(group) {
+  const db = getDb();
+  await db.collection('groups').updateOne(
+    { id: group.id },
+    { $set: group },
+    { upsert: true }
+  );
+}
+
+async function addReportMongo({ groupId, channelId, targetUserId, targetUsername, actorUserId, reason = 'ban-in-channel' }) {
+  const db = getDb();
   const report = {
     id: uuid(),
-    createdAt: Date.now(),
+    createdAt: now(),
     groupId, channelId,
     targetUserId: targetUserId || null,
     targetUsername: targetUsername || null,
-    actorUserId: actorUserId || null,  // the group admin who acted
-    reason,                             // "ban-in-channel"
-    status: 'open'                      // 'open' | 'resolved'
+    actorUserId: actorUserId || null,
+    reason,
+    status: 'open'
   };
-  db.reports.push(report);
-  save(db);
+  await db.collection('reports').insertOne(report);
   return report;
 }
 
-let db = load();
-db.reports = db.reports || [];
-
-// Simple health check
+/** -------------------- Health -------------------- **/
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
-/** ---------- Groups ---------- **/
-app.get('/groups', (_req, res) => {
-  res.json(db.groups);
+/** -------------------- Groups -------------------- **/
+// list groups
+app.get('/groups', async (_req, res) => {
+  const db = getDb();
+  const groups = await db.collection('groups').find({}).toArray();
+  res.json(groups);
 });
 
-// List reports (Super Admins would call this; phase-1: no auth check)
-app.get('/reports', (req, res) => {
-  res.json(db.reports || []);
-});
-
-// Create a report (if you ever want to send them manually)
-app.post('/reports', (req, res) => {
-  const r = addReport(req.body || {});
-  res.status(201).json(r);
-});
-
-// Resolve a report
-app.put('/reports/:id/resolve', (req, res) => {
-  const idx = (db.reports || []).findIndex(r => r.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ ok:false });
-  db.reports[idx].status = 'resolved';
-  db.reports[idx].resolvedAt = Date.now();
-  save(db);
-  res.json({ ok:true, report: db.reports[idx] });
-});
-
-app.post('/groups', (req, res) => {
-  const { name, creatorId } = req.body;
+// create group
+app.post('/groups', async (req, res) => {
+  const { name, creatorId } = req.body || {};
   if (!name || !creatorId) return res.status(400).json({ error: 'name and creatorId required' });
+
   const group = {
     id: uuid(),
     name,
@@ -82,98 +80,131 @@ app.post('/groups', (req, res) => {
     joinRequests: [],
     channels: []
   };
-  db.groups.push(group);
-  save(db);
+  const db = getDb();
+  await db.collection('groups').insertOne(group);
   res.status(201).json(group);
 });
 
-app.delete('/groups/:groupId', (req, res) => {
-  const { groupId } = req.params;
-  const idx = db.groups.findIndex(g => g.id === groupId);
-  if (idx === -1) return res.status(404).json({ ok: false });
-  db.groups.splice(idx, 1);
-  save(db);
+// delete group
+app.delete('/groups/:groupId', async (req, res) => {
+  const db = getDb();
+  const result = await db.collection('groups').deleteOne({ id: req.params.groupId });
+  if (result.deletedCount === 0) return res.status(404).json({ ok: false });
   res.json({ ok: true });
 });
 
-/** ---------- Channels ---------- **/
-// Create channel in a group (with per-channel ban arrays)
-app.post('/groups/:groupId/channels', (req, res) => {
+/** -------------------- Reports (Super Admin) -------------------- **/
+app.get('/reports', async (_req, res) => {
+  const db = getDb();
+  const reports = await db.collection('reports').find({}).sort({ createdAt: -1 }).toArray();
+  res.json(reports);
+});
+
+app.post('/reports', async (req, res) => {
+  const r = await addReportMongo(req.body || {});
+  res.status(201).json(r);
+});
+
+app.put('/reports/:id/resolve', async (req, res) => {
+  const db = getDb();
+  const result = await db.collection('reports').findOneAndUpdate(
+    { id: req.params.id },
+    { $set: { status: 'resolved', resolvedAt: now() } },
+    { returnDocument: 'after' }
+  );
+  if (!result.value) return res.status(404).json({ ok: false });
+  res.json({ ok: true, report: result.value });
+});
+
+/** -------------------- Channels -------------------- **/
+// create channel (initial members = current group users)
+app.post('/groups/:groupId/channels', async (req, res) => {
   const { groupId } = req.params;
-  const { name } = req.body;
+  const { name } = req.body || {};
+  if (!name) return res.status(400).json({ error: 'name required' });
 
-  const group = db.groups.find(g => g.id === groupId);
-  if (!group) return res.status(404).json({ error: 'Group not found' });
+  const g = await getGroup(groupId);
+  if (!g) return res.status(404).json({ error: 'Group not found' });
 
+  g.channels = g.channels || [];
   const channel = {
     id: uuid(),
     name,
-    // new channel initially visible to current group members
-    members: [...(group.users || [])],
+    members: [...(g.users || [])],
     messages: [],
-    bannedUserIds: [],      // per-channel ban by id
-    bannedUsernames: []     // per-channel ban by username
+    bannedUserIds: [],
+    bannedUsernames: []
   };
-
-  group.channels.push(channel);
-  save(db);
+  g.channels.push(channel);
+  await saveGroup(g);
   res.status(201).json(channel);
 });
 
-app.delete('/groups/:groupId/channels/:channelId', (req, res) => {
+// remove channel
+app.delete('/groups/:groupId/channels/:channelId', async (req, res) => {
   const { groupId, channelId } = req.params;
-  const group = db.groups.find(g => g.id === groupId);
-  if (!group) return res.status(404).json({ ok: false });
-  group.channels = (group.channels || []).filter(ch => ch.id !== channelId);
-  save(db);
+  const g = await getGroup(groupId);
+  if (!g) return res.status(404).json({ ok: false });
+
+  g.channels = (g.channels || []).filter(c => c.id !== channelId);
+  await saveGroup(g);
   res.json({ ok: true });
 });
 
-/** ---------- Join Requests ---------- **/
-app.post('/groups/:groupId/join', (req, res) => {
+/** -------------------- Join Requests -------------------- **/
+app.post('/groups/:groupId/join', async (req, res) => {
   const { groupId } = req.params;
-  const { userId } = req.body;
-  const g = db.groups.find(gr => gr.id === groupId);
+  const { userId } = req.body || {};
+  if (!userId) return res.status(400).json({ error: 'userId required' });
+
+  const g = await getGroup(groupId);
   if (!g) return res.status(404).json({ error: 'group not found' });
+
+  g.joinRequests = g.joinRequests || [];
+  g.users = g.users || [];
   if (!g.users.includes(userId) && !g.joinRequests.includes(userId)) {
     g.joinRequests.push(userId);
-    save(db);
+    await saveGroup(g);
   }
   res.json({ ok: true });
 });
 
-app.put('/groups/:groupId/approve/:userId', (req, res) => {
+app.put('/groups/:groupId/approve/:userId', async (req, res) => {
   const { groupId, userId } = req.params;
-  const g = db.groups.find(gr => gr.id === groupId);
+  const g = await getGroup(groupId);
   if (!g) return res.status(404).json({ error: 'group not found' });
-  g.joinRequests = g.joinRequests.filter(id => id !== userId);
+
+  g.joinRequests = (g.joinRequests || []).filter(id => id !== userId);
+  g.users = g.users || [];
   if (!g.users.includes(userId)) g.users.push(userId);
+
   (g.channels || []).forEach(ch => {
     ch.members = ch.members || [];
     if (!ch.members.includes(userId)) ch.members.push(userId);
   });
-  save(db);
+
+  await saveGroup(g);
   res.json(g);
 });
 
-app.put('/groups/:groupId/reject/:userId', (req, res) => {
+app.put('/groups/:groupId/reject/:userId', async (req, res) => {
   const { groupId, userId } = req.params;
-  const g = db.groups.find(gr => gr.id === groupId);
+  const g = await getGroup(groupId);
   if (!g) return res.status(404).json({ error: 'group not found' });
-  g.joinRequests = g.joinRequests.filter(id => id !== userId);
-  save(db);
+
+  g.joinRequests = (g.joinRequests || []).filter(id => id !== userId);
+  await saveGroup(g);
   res.json(g);
 });
 
-/** ---------- Channel Bans (REQUIRED by spec) ---------- **/
-// Ban a user from a channel (by userId or username)
-app.post('/groups/:groupId/channels/:channelId/ban', (req, res) => {
+/** -------------------- Channel Bans -------------------- **/
+app.post('/groups/:groupId/channels/:channelId/ban', async (req, res) => {
   const { groupId, channelId } = req.params;
   const { userId, username, actorUserId, report } = req.body || {};
 
-  const group = db.groups.find(g => g.id === groupId);
-  if (!group) return res.status(404).json({ error: 'Group not found' });
-  const ch = (group.channels || []).find(c => c.id === channelId);
+  const g = await getGroup(groupId);
+  if (!g) return res.status(404).json({ error: 'Group not found' });
+  const ch = (g.channels || []).find(c => c.id === channelId);
   if (!ch) return res.status(404).json({ error: 'Channel not found' });
 
   ch.bannedUserIds = ch.bannedUserIds || [];
@@ -183,11 +214,11 @@ app.post('/groups/:groupId/channels/:channelId/ban', (req, res) => {
   if (userId && !ch.bannedUserIds.includes(userId)) ch.bannedUserIds.push(userId);
   if (username && !ch.bannedUsernames.includes(username)) ch.bannedUsernames.push(username);
 
-  // if we banned by id, also remove membership
+  // remove membership when banning by id
   if (userId) ch.members = ch.members.filter(id => id !== userId);
 
   if (report) {
-    addReport({
+    await addReportMongo({
       groupId, channelId,
       targetUserId: userId || null,
       targetUsername: username || null,
@@ -195,34 +226,33 @@ app.post('/groups/:groupId/channels/:channelId/ban', (req, res) => {
       reason: 'ban-in-channel'
     });
   }
-  save(db);
+
+  await saveGroup(g);
   res.json({ ok: true, channel: ch });
 });
 
-// Unban a user from a channel (accept JSON body or query string)
-app.delete('/groups/:groupId/channels/:channelId/ban', (req, res) => {
+app.delete('/groups/:groupId/channels/:channelId/ban', async (req, res) => {
   const { groupId, channelId } = req.params;
   const source = (req.body && Object.keys(req.body).length) ? req.body : req.query;
   const { userId, username } = source || {};
 
-  const group = db.groups.find(g => g.id === groupId);
-  if (!group) return res.status(404).json({ error: 'Group not found' });
-  const ch = (group.channels || []).find(c => c.id === channelId);
+  const g = await getGroup(groupId);
+  if (!g) return res.status(404).json({ error: 'Group not found' });
+  const ch = (g.channels || []).find(c => c.id === channelId);
   if (!ch) return res.status(404).json({ error: 'Channel not found' });
 
   ch.bannedUserIds = (ch.bannedUserIds || []).filter(id => id !== userId);
   ch.bannedUsernames = (ch.bannedUsernames || []).filter(u => u !== username);
 
-  save(db);
+  await saveGroup(g);
   res.json({ ok: true, channel: ch });
 });
 
-// List banned users for a channel
-app.get('/groups/:groupId/channels/:channelId/banned', (req, res) => {
+app.get('/groups/:groupId/channels/:channelId/banned', async (req, res) => {
   const { groupId, channelId } = req.params;
-  const group = db.groups.find(g => g.id === groupId);
-  if (!group) return res.status(404).json({ error: 'Group not found' });
-  const ch = (group.channels || []).find(c => c.id === channelId);
+  const g = await getGroup(groupId);
+  if (!g) return res.status(404).json({ error: 'Group not found' });
+  const ch = (g.channels || []).find(c => c.id === channelId);
   if (!ch) return res.status(404).json({ error: 'Channel not found' });
 
   res.json({
@@ -231,13 +261,13 @@ app.get('/groups/:groupId/channels/:channelId/banned', (req, res) => {
   });
 });
 
-/** ---------- Leave Group ---------- **/
-app.post('/groups/:groupId/leave', (req, res) => {
+/** -------------------- Leave Group -------------------- **/
+app.post('/groups/:groupId/leave', async (req, res) => {
   const { groupId } = req.params;
   const { userId } = req.body || {};
   if (!userId) return res.status(400).json({ ok: false, error: 'userId required' });
 
-  const g = db.groups.find(gr => gr.id === groupId);
+  const g = await getGroup(groupId);
   if (!g) return res.status(404).json({ ok: false, error: 'group not found' });
 
   g.users = (g.users || []).filter(id => id !== userId);
@@ -246,37 +276,44 @@ app.post('/groups/:groupId/leave', (req, res) => {
   });
   g.joinRequests = (g.joinRequests || []).filter(id => id !== userId);
 
-  save(db);
+  await saveGroup(g);
   res.json({ ok: true });
 });
 
-/** ---------- Messages ---------- **/
-app.get('/messages', (req, res) => {
-  const { groupId, channelId } = req.query;
-  const g = db.groups.find(gr => gr.id === groupId);
-  const ch = g?.channels.find(c => c.id === channelId);
+/** -------------------- Messages -------------------- **/
+app.get('/messages', async (req, res) => {
+  const { groupId, channelId } = req.query || {};
+  const g = await getGroup(groupId);
+  const ch = g?.channels?.find(c => c.id === channelId);
   res.json(ch?.messages || []);
 });
 
-app.post('/messages', (req, res) => {
-  const { groupId, channelId, username, userId, content } = req.body;
-  const g = db.groups.find(gr => gr.id === groupId);
+app.post('/messages', async (req, res) => {
+  const { groupId, channelId, username, userId, content } = req.body || {};
+  if (!groupId || !channelId || !username || !content) {
+    return res.status(400).json({ error: 'groupId, channelId, username, content required' });
+  }
+
+  const g = await getGroup(groupId);
   if (!g) return res.status(404).json({ error: 'group not found' });
-  const ch = g.channels.find(c => c.id === channelId);
+
+  const ch = (g.channels || []).find(c => c.id === channelId);
   if (!ch) return res.status(404).json({ error: 'channel not found' });
 
-  // Enforce channel bans (by username or by userId)
+  // Enforce channel bans
   if ((ch.bannedUsernames || []).includes(username) ||
       (ch.bannedUserIds || []).includes(userId)) {
     return res.status(403).json({ error: 'User is banned from this channel' });
   }
 
-  const msg = { username, content, timestamp: Date.now() };
+  const msg = { username, content, timestamp: now() };
   ch.messages = ch.messages || [];
   ch.messages.push(msg);
-  save(db);
+
+  await saveGroup(g);
   res.status(201).json({ ok: true, message: msg });
 });
 
-const PORT = 4000;
+/** -------------------- Start -------------------- **/
+const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log(`API running on http://localhost:${PORT}`));
