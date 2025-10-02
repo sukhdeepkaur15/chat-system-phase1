@@ -4,6 +4,11 @@
     <h2 style="margin:0 0 4px;">Welcome, {{ greetingTitle }} 🎊</h2>
     <p style="margin:0 0 14px;">Your Role: {{ roleDisplay }}</p>
 
+    <!-- Profile Avatar Upload -->
+    <div class="row" style="margin-bottom:10px;">
+      <input type="file" (change)="uploadAvatar($event)" />
+    </div>
+
     <!-- Super / Group Admin: create group -->
     <div *ngIf="role.includes('super') || role.includes('groupAdmin')" class="row">
       <input #newGroupName class="input-framed" placeholder="New Group Name" />
@@ -27,7 +32,7 @@
           </div>
         </div>
 
-        <!-- Approvals (only if viewer can moderate THIS group) -->
+        <!-- Approvals -->
         <div *ngIf="canModerate(group) && ((group.joinRequests?.length || 0) > 0)">
           <h4>Pending Join Requests:</h4>
           <div *ngFor="let uid of (group.joinRequests || [])" class="row">
@@ -70,14 +75,13 @@
               </button>
             </ng-container>
 
-          <!-- right side buttons wrapped to control their gap only -->
-          <div class="right-actions">
-            <button class="btn-blue" *ngIf="isMember(group)" (click)="leaveGroup(group)">Leave Group</button>
-            <button class="btn-red"  *ngIf="canModerate(group)" (click)="deleteGroup(group)">Delete Group</button>
+            <div class="right-actions">
+              <button class="btn-blue" *ngIf="isMember(group)" (click)="leaveGroup(group)">Leave Group</button>
+              <button class="btn-red"  *ngIf="canModerate(group)" (click)="deleteGroup(group)">Delete Group</button>
+            </div>
           </div>
-        </div>
 
-          <!-- CHANNEL MEMBERS (framed) -->
+          <!-- CHANNEL MEMBERS -->
           <div class="panel-framed" *ngIf="selectedChannel && canModerate(group)">
             <h4>Channel Members: {{ selectedChannel.name }}</h4>
             <div *ngIf="channelMemberIds(selectedChannel).length === 0">No channel members yet.</div>
@@ -124,7 +128,7 @@
     </div>
   </div>
 
-  <!-- Chat Box (messages framed) -->
+  <!-- Chat Box -->
   <div *ngIf="selectedChannel" class="chat-card" style="max-width:900px;margin:12px auto 0;">
     <h4>Channel: {{ selectedChannel.name }}</h4>
 
@@ -132,76 +136,40 @@
       You are banned from this channel. You can read past messages but cannot send new ones.
     </div>
 
+    <!-- Messages with avatars + images -->
     <div class="messages panel-framed">
-      <div *ngFor="let msg of messages">
-        <strong>{{ msg.username }}:</strong> {{ msg.content }}
+      <div *ngFor="let msg of messages" class="chat-message">
+        <img *ngIf="msg.username" [src]="msg.avatarUrl" class="avatar" />
+        <strong>{{ msg.username }}:</strong>
+        <span *ngIf="!msg.imageUrl">{{ msg.content }}</span>
+        <img *ngIf="msg.imageUrl" [src]="msg.imageUrl" class="chat-image" />
       </div>
     </div>
 
+    <!-- Message input + upload -->
     <div class="row">
       <input [(ngModel)]="newMessage" class="input-framed" placeholder="Type message..." [disabled]="isBannedHere" />
       <button class="btn-blue" (click)="sendMessage()" [disabled]="isBannedHere">Send</button>
+      <!-- ✅ Image Upload Button -->
+      <input type="file" accept="image/*" (change)="sendImage($event)" />
+     </div>
+    </div>
+
+    <!-- Video Chat -->
+    <div class="panel-framed" style="margin-top:10px;">
+      <button class="btn-green" (click)="startVideoChat()">Start Video Chat</button>
+      <div id="video-container"></div>
     </div>
   </div>
 
-  <!-- SUPER ADMIN PANEL (unchanged) -->
+  <!-- SUPER ADMIN PANEL -->
   <div *ngIf="role.includes('super')" class="super-admin-panel">
     <h2>Super Admin Panel</h2>
-
-    <h3>Create New User</h3>
-    <div class="create-user-panel">
-      <div class="row">
-        <input [(ngModel)]="newUsername" class="input-framed-lg" placeholder="Username" />
-        <input [(ngModel)]="newEmail" class="input-framed-lg" placeholder="Email" />
-        <select [(ngModel)]="newRole" class="input-framed-lg">
-          <option value="user">User</option>
-          <option value="groupAdmin">Group Admin</option>
-          <option value="super">Super Admin</option>
-        </select>
-        <button class="btn-blue" (click)="createUser()">Create User</button>
-      </div>
-    </div>
-
-    <h3>Manage Users</h3>
-    <table cellpadding="5">
-      <tr class="table-head">
-        <th>Username</th>
-        <th>Email</th>
-        <th>Roles</th>
-        <th>Actions</th>
-      </tr>
-      <tr *ngFor="let u of allUsers">
-        <td>{{ u.username }}</td>
-        <td>{{ u.email }}</td>
-        <td>{{ u.roles.join(', ') }}</td>
-        <td>
-          <button class="btn-green" (click)="promoteUser(u, 'groupAdmin')">Promote to Group Admin</button>
-          <button class="btn-blue"  (click)="promoteUser(u, 'super')">Promote to Super</button>
-          <button class="btn-red"   (click)="deleteUser(u)">Delete</button>
-        </td>
-      </tr>
-    </table>
-
-    <h3 style="margin-top:16px;">Moderation Reports</h3>
-    <div *ngIf="!reports?.length" style="opacity:.8">No pending reports.</div>
-    <ul *ngIf="reports?.length">
-      <li *ngFor="let r of reports" style="margin-bottom:8px;">
-        <div>
-          <strong>{{ r.reason || 'Ban issued' }}</strong>
-          — Target:
-          <code>{{ r.username || r.userId }}</code>
-          — Group: <code>{{ r.groupName || r.groupId }}</code>
-          — Channel: <code>{{ r.channelName || r.channelId }}</code>
-          — By: <code>{{ r.actorUsername || r.actorUserId }}</code>
-          — <small>{{ r.createdAt | date:'short' }}</small>
-        </div>
-        <button class="btn-green" (click)="resolveReport(r)">Mark Resolved</button>
-      </li>
-    </ul>
+    ...
   </div>
 
   <div class="logout-center">
     <button class="btn-red btn-wide" (click)="logout()">Logout</button>
   </div>
-</div>
+
 
