@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const { v4: uuid } = require('uuid');
 const { connectMongo, getDb } = require('./mongo');
+const http = require('http');
 
 const app = express();
 app.use(cors());
@@ -12,11 +13,10 @@ app.use(express.json());
 (async () => {
   try {
     await connectMongo();
-    // ensure collections exist & minimal indexes you may want later
     const db = getDb();
     await db.collection('groups').createIndex({ id: 1 }, { unique: true });
     await db.collection('reports').createIndex({ id: 1 }, { unique: true });
-    console.log('[init] indexes ensured');
+    console.log('[init] Mongo connected & indexes ensured');
   } catch (err) {
     console.error('Failed to connect to Mongo:', err);
     process.exit(1);
@@ -314,6 +314,20 @@ app.post('/messages', async (req, res) => {
   res.status(201).json({ ok: true, message: msg });
 });
 
-/** -------------------- Start -------------------- **/
+//** -------------------- Server Boot -------------------- **/
 const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => console.log(`API running on http://localhost:${PORT}`));
+const server = http.createServer(app);
+
+// start Express API always
+server.listen(PORT, () => {
+  console.log(`API running on http://localhost:${PORT}`);
+});
+
+// start PeerJS server on a separate port
+if (process.env.NODE_ENV !== 'test') {
+  require('./peer-server')(); // this starts peer on 4001
+}
+
+module.exports = { app, server };
+
+

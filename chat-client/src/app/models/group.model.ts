@@ -1,6 +1,7 @@
 export interface Message {
   username: string;
   content: string;
+  imageUrl?: string; 
   timestamp: number;
 }
 

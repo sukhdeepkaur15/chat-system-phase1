@@ -7,9 +7,16 @@ import { Router } from '@angular/router';
 import { AuthService } from '../services/auth.service';
 import { GroupService } from '../services/group.service';
 import { ChatService } from '../services/chat.service';
+import { ApiService } from '../services/api.service';   // ✅ added
 
 import { User } from '../models/user.model';
 import { Group, Channel, Message } from '../models/group.model';
+
+type ChatMsg = Message & {
+  avatarUrl?: string;
+  imageUrl?: string;
+  type?: 'text' | 'image';
+};
 
 @Component({
   selector: 'app-dashboard',
@@ -29,16 +36,23 @@ export class DashboardComponent implements OnInit {
   messages: Message[] = [];
   newMessage = '';
 
-  // Super admin user management (local Phase 1)
+  // Super admin user management
   allUsers: User[] = [];
   newUsername = '';
   newEmail = '';
   newRole: 'user' | 'groupAdmin' | 'super' = 'user';
 
-  // Super Admin sees moderation reports
   reports: any[] = [];
 
-  /** ---------- Role helpers ---------- */
+  constructor(
+    private authService: AuthService,
+    private groupService: GroupService,
+    private chatService: ChatService,
+    private api: ApiService,                // ✅ added
+    private router: Router
+  ) {}
+
+  // Role helpers
   get isSuper(): boolean {
     const r = this.role || [];
     return r.includes('super') || r.includes('superAdmin');
@@ -48,60 +62,23 @@ export class DashboardComponent implements OnInit {
     return r.includes('groupAdmin');
   }
 
-  // Is the current user a member of this group?
   isMember(group: any): boolean {
-    const uid = this.currentUserId;
-    return Array.isArray(group?.users) ? group.users.includes(uid) : false;
+    return Array.isArray(group?.users) ? group.users.includes(this.currentUserId) : false;
   }
-
-  // Has the current user requested to join?
   hasRequested(group: any): boolean {
-    const uid = this.currentUserId;
-    return Array.isArray(group?.joinRequests) ? group.joinRequests.includes(uid) : false;
+    return Array.isArray(group?.joinRequests) ? group.joinRequests.includes(this.currentUserId) : false;
   }
-
-  // Can the current user moderate this group (Super OR GroupAdmin who created it)?
   canModerate(group: any): boolean {
     if (!group) return false;
     if (this.isSuper) return true;
     return this.isGroupAdmin && group.creatorId === this.currentUserId;
   }
 
-  /** Am I banned in the currently selected channel? (channel-only per assignment) */
   get isBannedHere(): boolean {
     if (!this.selectedGroup || !this.selectedChannel) return false;
     const byIdChan   = (this.selectedChannel.bannedUsers || []).includes(this.currentUserId);
     const byNameChan = (this.selectedChannel as any).bannedUsernames?.includes(this.username) || false;
     return byIdChan || byNameChan;
-  }
-
-  /** Members helpers */
-  groupMemberIds(group: any): string[] {
-    return (group?.users && Array.isArray(group.users) ? group.users : [])
-      .concat(group?.members && Array.isArray(group.members) ? group.members : [])
-      .filter((v: string, i: number, a: string[]) => a.indexOf(v) === i);
-  }
-  channelMemberIds(ch: any): string[] {
-    const members: string[] = Array.isArray(ch?.members) ? ch.members : [];
-    const bannedNames: string[] = Array.isArray((ch as any)?.bannedUsernames)
-      ? (ch as any).bannedUsernames
-      : [];
-
-    return members.filter(id => {
-      const uname = this.getUserById(id)?.username || '';
-      return !bannedNames.includes(uname);
-    });
-   }
-
-  /** Optional debug block */
-  get debug(): any {
-    return {
-      isSuper: this.isSuper,
-      isGroupAdmin: this.isGroupAdmin,
-      role: this.role,
-      selectedGroup: this.selectedGroup?.id,
-      selectedChannel: this.selectedChannel?.id,
-    };
   }
 
   get currentUserId(): string { return this.currentUser?.id ?? ''; }
@@ -114,24 +91,15 @@ export class DashboardComponent implements OnInit {
 
   trackById(_: number, item: { id: string }) { return item.id; }
 
-  /** Visible channels (respect channel bans unless super) */
   get visibleChannels(): Channel[] {
     if (!this.selectedGroup) return [];
     const g = this.selectedGroup;
     if (this.isSuper) return g.channels || [];
-    return (g.channels || []).filter(ch => {
-      const chanBanned = (ch.bannedUsers || []).includes(this.currentUserId);
-      return !chanBanned && (ch.members || []).includes(this.currentUserId);
-    });
+    return (g.channels || []).filter(ch =>
+      !(ch.bannedUsers || []).includes(this.currentUserId) &&
+      (ch.members || []).includes(this.currentUserId)
+    );
   }
-
-  /** ---------- Lifecycle ---------- */
-  constructor(
-    private authService: AuthService,
-    private groupService: GroupService,
-    private chatService: ChatService,
-    private router: Router
-  ) {}
 
   ngOnInit() {
     const user = this.authService.getUser();
@@ -144,10 +112,9 @@ export class DashboardComponent implements OnInit {
     this.role = user.roles || [];
 
     this.refreshGroups();
-
     if (this.isSuper) {
       this.allUsers = this.authService.getAllUsers();
-      this.loadReports(); // fetch moderation reports for super admins
+      this.loadReports();
     }
   }
 
@@ -155,8 +122,6 @@ export class DashboardComponent implements OnInit {
     this.groupService.getGroups().subscribe({
       next: (allGroups) => {
         this.groups = allGroups || [];
-
-        // Re-bind selections to fresh instances
         if (this.selectedGroup) {
           this.selectedGroup = this.groups.find(g => g.id === this.selectedGroup!.id) ?? null;
         }
@@ -178,7 +143,6 @@ export class DashboardComponent implements OnInit {
       }
     });
   }
-
   private refreshGroups(): void { this.loadGroups(); }
 
   /** ---------- Reports (Super Admin) ---------- */
@@ -189,7 +153,6 @@ export class DashboardComponent implements OnInit {
       error: () => this.reports = []
     });
   }
-
   resolveReport(r: any) {
     if (!this.isSuper) return;
     this.groupService.resolveReport(r.id).subscribe({
@@ -209,22 +172,17 @@ export class DashboardComponent implements OnInit {
     this.selectedChannel = null;
     this.messages = [];
   }
-
   selectChannel(channel: Channel) {
     if (!this.selectedGroup) return;
-
     const isChanBanned = (channel.bannedUsers || []).includes(this.currentUserId);
     const isMember = (channel.members || []).includes(this.currentUserId);
-
     if (!this.isSuper && (isChanBanned || !isMember)) {
       alert('You are not allowed to access this channel.');
       return;
     }
-
     this.selectedChannel = channel;
     this.loadMessages(this.selectedGroup.id, channel.id);
   }
-
   private loadMessages(groupId: string, channelId: string) {
     this.chatService.getMessages(groupId, channelId).subscribe({
       next: (msgs) => this.messages = msgs || [],
@@ -235,31 +193,74 @@ export class DashboardComponent implements OnInit {
   /** ---------- Messaging ---------- */
   sendMessage() {
     if (!this.selectedGroup || !this.selectedChannel || !this.newMessage.trim()) return;
-
     const isChanBanned = (this.selectedChannel.bannedUsers || []).includes(this.currentUserId);
     const isMember = (this.selectedChannel.members || []).includes(this.currentUserId);
-
     if (!this.isSuper && (isChanBanned || !isMember)) {
       alert('You are not allowed to post in this channel.');
       return;
     }
-
     this.chatService
-      .sendMessage(this.selectedGroup.id, this.selectedChannel.id, this.username, this.newMessage.trim())
+      .sendMessage(
+        this.selectedGroup.id, 
+        this.selectedChannel.id, 
+        this.username,
+        this.currentUser.id, 
+        this.newMessage.trim()
+      )
       .subscribe({
         next: () => {
           this.newMessage = '';
           this.loadMessages(this.selectedGroup!.id, this.selectedChannel!.id);
         },
-        error: (err) => {
+        error: (err: any) => {
           if (err?.status === 403) {
-            const msg = err?.error?.error || 'You are banned from this channel.';
-            alert(msg);
+            alert(err?.error?.error || 'You are banned from this channel.');
           } else {
             alert('Failed to send message. Please try again.');
           }
         }
       });
+  }
+
+  /** ---------- Avatar upload (fixes template error) ---------- */
+  uploadAvatar(ev: Event) {
+    const input = ev.target as HTMLInputElement;
+    const file = input?.files?.[0];
+    if (!file) return;
+    this.api.uploadAvatar(this.currentUserId, file).subscribe({
+      next: (res: any) => {
+        // If your auth service stores avatar locally, update it here
+        // (res could contain { ok, url } depending on your server)
+        alert('Avatar uploaded successfully.');
+      },
+      error: () => alert('Failed to upload avatar.')
+    });
+  }
+
+  /** ---------- NEW: Upload & send image ---------- */
+  sendImage(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input?.files?.[0];
+  if (!file || !this.selectedGroup || !this.selectedChannel) return;
+
+  this.chatService
+    .sendImageMessage(
+      this.selectedGroup.id,
+      this.selectedChannel.id,
+      this.username,
+      this.currentUser.id,
+      file
+    )
+    .subscribe({
+      next: () => console.log('image uploaded'),
+      error: (err: any) => console.error(err)
+    });
+}
+
+/** ---------- Start video chat ---------- */
+  startVideoChat() {
+    // Navigate to your VideoChat component route or open a panel
+    this.router.navigate(['/video']);
   }
 
   /** ---------- Users (Super local) ---------- */
