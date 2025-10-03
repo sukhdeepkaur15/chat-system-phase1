@@ -49,7 +49,7 @@ export class ApiService {
   }
 
   /** --- Avatars (profile images) --- */
-  uploadAvatar(file: File, userId: string): Observable<any> {
+  uploadAvatar(userId: string, file: File): Observable<any> {
     const form = new FormData();
     form.append('avatar', file);
     form.append('userId', userId);
