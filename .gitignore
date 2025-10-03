@@ -1,4 +1,23 @@
-chat-client/node_modules/ 
-chat-server/node_modules/ 
-node_modules/ 
-.env 
+# Node
+node_modules/
+npm-debug.log*
+
+# Angular client outputs
+chat-client/.angular/
+chat-client/dist/
+chat-client/coverage/
+
+# Cypress artifacts
+chat-client/cypress/screenshots/
+chat-client/cypress/videos/
+chat-client/cypress/downloads/
+
+# Server outputs (adjust as needed)
+chat-server/coverage/
+chat-server/uploads/
+
+# Env files
+*.env
+chat-client/.env
+chat-server/.env
+
