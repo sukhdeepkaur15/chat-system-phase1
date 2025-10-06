@@ -1,12 +1,13 @@
 <div class="dashboard">
   <!-- WELCOME PANEL (now also contains the groups list) -->
   <div class="hero">
-    <h2 style="margin:0 0 4px;">Welcome, {{ greetingTitle }} 🎊</h2>
+   <h2 data-cy="welcome" style="margin:0 0 4px;">Welcome, {{ greetingTitle }} 🎊</h2>
     <p style="margin:0 0 14px;">Your Role: {{ roleDisplay }}</p>
 
     <!-- Profile Avatar Upload -->
-    <div class="row" style="margin-bottom:10px;">
-      <input type="file" (change)="uploadAvatar($event)" />
+    <div style="margin-top:10px">
+      <label style="font-weight:600; display:block; margin-bottom:6px;">Update Avatar</label>
+      <input type="file" accept="image/*" (change)="uploadAvatar($event)">
     </div>
 
     <!-- Super / Group Admin: create group -->
@@ -150,7 +151,7 @@
     <div class="row">
       <input [(ngModel)]="newMessage" class="input-framed" placeholder="Type message..." [disabled]="isBannedHere" />
       <button class="btn-blue" (click)="sendMessage()" [disabled]="isBannedHere">Send</button>
-      <!-- ✅ Image Upload Button -->
+      <!-- Image Upload Button -->
       <input type="file" accept="image/*" (change)="sendImage($event)" />
      </div>
     </div>
@@ -158,18 +159,89 @@
     <!-- Video Chat -->
     <div class="panel-framed" style="margin-top:10px;">
       <button class="btn-green" (click)="startVideoChat()">Start Video Chat</button>
-      <div id="video-container"></div>
+      <div id="video-container">
     </div>
   </div>
 
   <!-- SUPER ADMIN PANEL -->
   <div *ngIf="role.includes('super')" class="super-admin-panel">
     <h2>Super Admin Panel</h2>
-    ...
+    <!-- Create User -->
+  <h3>Create New User</h3>
+  <div class="create-user-panel">
+    <div class="row">
+      <input [(ngModel)]="newUsername" class="input-framed-lg" placeholder="Username" />
+      <input [(ngModel)]="newEmail" class="input-framed-lg" placeholder="Email" />
+      <select [(ngModel)]="newRole" class="input-framed-lg">
+        <option value="user">User</option>
+        <option value="groupAdmin">Group Admin</option>
+        <option value="super">Super Admin</option>
+      </select>
+      <button class="btn-blue" (click)="createUser()">Create User</button>
+    </div>
   </div>
 
-  <div class="logout-center">
-    <button class="btn-red btn-wide" (click)="logout()">Logout</button>
-  </div>
+  <!-- Manage Users -->
+  <h3>Manage Users</h3>
+  <table cellpadding="5" style="width:100%;">
+    <tr class="table-head">
+      <th>Username</th>
+      <th>Email</th>
+      <th>Roles</th>
+      <th>Actions</th>
+    </tr>
+    <tr *ngFor="let u of allUsers">
+      <td>{{ u.username }}</td>
+      <td>{{ u.email }}</td>
+      <td>{{ u.roles.join(', ') }}</td>
+      <td>
+        <button class="btn-green" (click)="promoteUser(u, 'groupAdmin')">Promote to Group Admin</button>
+        <button class="btn-blue"  (click)="promoteUser(u, 'super')">Promote to Super</button>
+        <button class="btn-red"   (click)="deleteUser(u)">Delete</button>
+      </td>
+    </tr>
+  </table>
+
+  <!-- Moderation Reports -->
+<h3 style="margin-top:16px;">Moderation Reports</h3>
+<div *ngIf="!reports?.length" style="opacity:.8">No pending reports.</div>
+
+<ul *ngIf="reports?.length">
+  <li *ngFor="let r of reports" style="margin-bottom:10px;">
+    <div>
+      <strong>{{ r.reason || 'Ban issued' }}</strong>
+      — Target:
+      <code>{{ r.targetUsername || r.targetUserId || '—' }}</code>
+      — Group: <code>{{ r.groupName || r.groupId }}</code>
+      — Channel: <code>{{ r.channelName || r.channelId }}</code>
+      — By: <code>{{ r.actorUsername || r.actorUserId || '—' }}</code>
+      — <small>{{ r.createdAt | date:'short' }}</small>
+      — <em>Status: {{ r.status || 'open' }}</em>
+    </div>
+
+    <!-- Show resolve button while report is open -->
+    <div style="margin-top:6px;">
+      <button
+        class="btn-green"
+        *ngIf="(r.status || 'open') === 'open'"
+        (click)="resolveReport(r)"
+      >
+        Mark Resolved
+      </button>
+      <span *ngIf="r.status === 'resolved'" style="color:#2e7d32;">Resolved</span>
+    </div>
+  </li>
+</ul>
+</div>
+
+<div class="logout-center" style="display:flex; justify-content:center; margin:16px 0 8px;">
+  <button class="btn-red btn-wide" (click)="logout()">Logout</button>
+</div>
+
+
+
+  
+
+
 
 
