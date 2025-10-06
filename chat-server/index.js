@@ -4,24 +4,23 @@ const cors = require('cors');
 const { v4: uuid } = require('uuid');
 const { connectMongo, getDb } = require('./mongo');
 const http = require('http');
+const path = require('path');
+
+// Routers
+const registerSockets = require('./sockets');
+const messagesRouter = require('./routes/messages'); // step 3
+const uploadRouter   = require('./routes/upload');   // step 5
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-/** -------------------- Mongo -------------------- **/
-(async () => {
-  try {
-    await connectMongo();
-    const db = getDb();
-    await db.collection('groups').createIndex({ id: 1 }, { unique: true });
-    await db.collection('reports').createIndex({ id: 1 }, { unique: true });
-    console.log('[init] Mongo connected & indexes ensured');
-  } catch (err) {
-    console.error('Failed to connect to Mongo:', err);
-    process.exit(1);
-  }
-})();
+// static for uploaded files
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// mount routers
+app.use(messagesRouter); // provides /messages (paged) etc.
+app.use(uploadRouter);   // provides /upload/avatar and /upload/chat
 
 /** -------------------- Helpers -------------------- **/
 function now() { return Date.now(); }
@@ -105,15 +104,58 @@ app.post('/reports', async (req, res) => {
   res.status(201).json(r);
 });
 
+// ✅ Resolve by UUID id OR Mongo _id; compatible with MongoDB driver v4–v6
 app.put('/reports/:id/resolve', async (req, res) => {
-  const db = getDb();
-  const result = await db.collection('reports').findOneAndUpdate(
-    { id: req.params.id },
-    { $set: { status: 'resolved', resolvedAt: now() } },
-    { returnDocument: 'after' }
-  );
-  if (!result.value) return res.status(404).json({ ok: false });
-  res.json({ ok: true, report: result.value });
+  try {
+    const db = getDb();
+    const raw = req.params.id;
+    const id = String(raw ?? '').trim().replace(/^['"]|['"]$/g, ''); // strip stray quotes
+    const update = { $set: { status: 'resolved', resolvedAt: Date.now() } };
+
+    // helper to normalize v4/v5/v6 return types (document | { value } | null)
+    const unwrap = (r) => (r && typeof r === 'object' && Object.prototype.hasOwnProperty.call(r, 'value') ? r.value : r);
+
+    // 1) Try by custom UUID "id"
+    let result = await db.collection('reports').findOneAndUpdate(
+      { id },
+      update,
+      { returnDocument: 'after' } // works on v4+; harmless on v6
+    );
+    let doc = unwrap(result);
+
+    // 2) If not found and looks like ObjectId, try by _id as ObjectId
+    if (!doc) {
+      const { ObjectId } = require('mongodb');
+      if (ObjectId.isValid(id)) {
+        try {
+          const r2 = await db.collection('reports').findOneAndUpdate(
+            { _id: new ObjectId(id) },
+            update,
+            { returnDocument: 'after' }
+          );
+          doc = unwrap(r2);
+        } catch (_) {
+          // ignore and try final fallback
+        }
+      }
+    }
+
+    // 3) Final fallback: _id stored as string (edge case)
+    if (!doc) {
+      const r3 = await db.collection('reports').findOneAndUpdate(
+        { _id: id },
+        update,
+        { returnDocument: 'after' }
+      );
+      doc = unwrap(r3);
+    }
+
+    if (!doc) return res.status(404).json({ ok: false, error: 'not found' });
+    return res.json({ ok: true, report: doc });
+  } catch (err) {
+    console.error('[resolve report] error:', err);
+    return res.status(500).json({ ok: false, error: 'internal' });
+  }
 });
 
 /** -------------------- Channels -------------------- **/
@@ -280,45 +322,10 @@ app.post('/groups/:groupId/leave', async (req, res) => {
   res.json({ ok: true });
 });
 
-/** -------------------- Messages -------------------- **/
-app.get('/messages', async (req, res) => {
-  const { groupId, channelId } = req.query || {};
-  const g = await getGroup(groupId);
-  const ch = g?.channels?.find(c => c.id === channelId);
-  res.json(ch?.messages || []);
-});
-
-app.post('/messages', async (req, res) => {
-  const { groupId, channelId, username, userId, content } = req.body || {};
-  if (!groupId || !channelId || !username || !content) {
-    return res.status(400).json({ error: 'groupId, channelId, username, content required' });
-  }
-
-  const g = await getGroup(groupId);
-  if (!g) return res.status(404).json({ error: 'group not found' });
-
-  const ch = (g.channels || []).find(c => c.id === channelId);
-  if (!ch) return res.status(404).json({ error: 'channel not found' });
-
-  // Enforce channel bans
-  if ((ch.bannedUsernames || []).includes(username) ||
-      (ch.bannedUserIds || []).includes(userId)) {
-    return res.status(403).json({ error: 'User is banned from this channel' });
-  }
-
-  const msg = { username, content, timestamp: now() };
-  ch.messages = ch.messages || [];
-  ch.messages.push(msg);
-
-  await saveGroup(g);
-  res.status(201).json({ ok: true, message: msg });
-});
-
-//** -------------------- Server Boot -------------------- **/
+// -------------------- Server Boot -------------------- //
 const PORT = process.env.PORT || 4000;
 const server = http.createServer(app);
 
-// start Express API always
 server.listen(PORT, () => {
   console.log(`API running on http://localhost:${PORT}`);
 });
@@ -328,6 +335,42 @@ if (process.env.NODE_ENV !== 'test') {
   require('./peer-server')(); // this starts peer on 4001
 }
 
+/** -------------------- Mongo -------------------- **/
+(async () => {
+  try {
+    await connectMongo();
+    const db = getDb();
+
+    // Indexes
+    await db.collection('groups').createIndex({ id: 1 }, { unique: true });
+    await db.collection('reports').createIndex({ id: 1 }, { unique: true });
+    await db.collection('users').createIndex({ username: 1 }, { unique: true });
+    await db.collection('messages').createIndex({ channelId: 1, timestamp: -1 });
+
+    // Seed super admin user (username: super, password: 123)
+    const usersCol = db.collection('users');
+    const superExists = await usersCol.findOne({ username: 'super' });
+    if (!superExists) {
+      await usersCol.insertOne({
+        id: uuid(),
+        username: 'super',
+        password: '123', // simple per brief
+        email: 'super@example.com',
+        roles: ['super'],
+        groups: [],
+        createdAt: Date.now()
+      });
+      console.log('[init] Seeded super user: super/123');
+    }
+
+    // ⬇️ Register sockets ONLY AFTER Mongo is ready
+    registerSockets(server, app);
+
+    console.log('[init] Mongo connected & indexes ensured');
+  } catch (err) {
+    console.error('Failed to connect to Mongo:', err);
+    process.exit(1);
+  }
+})();
+
 module.exports = { app, server };
-
-
