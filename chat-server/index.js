@@ -24,36 +24,27 @@ app.use(uploadRouter);   // provides /upload/avatar and /upload/chat
 
 /** -------------------- Helpers -------------------- **/
 function now() { return Date.now(); }
-
 async function getGroup(groupId) {
   const db = getDb();
   return db.collection('groups').findOne({ id: groupId });
 }
-
 async function saveGroup(group) {
   const db = getDb();
-  await db.collection('groups').updateOne(
-    { id: group.id },
-    { $set: group },
-    { upsert: true }
-  );
+  await db.collection('groups').updateOne({ id: group.id }, { $set: group }, { upsert: true });
 }
 
-async function addReportMongo({ groupId, channelId, targetUserId, targetUsername, actorUserId, reason = 'ban-in-channel' }) {
-  const db = getDb();
-  const report = {
-    id: uuid(),
-    createdAt: now(),
-    groupId, channelId,
-    targetUserId: targetUserId || null,
-    targetUsername: targetUsername || null,
-    actorUserId: actorUserId || null,
-    reason,
-    status: 'open'
-  };
-  await db.collection('reports').insertOne(report);
-  return report;
+// --- helper to create indexes without crashing when options differ ---
+async function ensureIndex(col, keys, options) {
+  try {
+    await col.createIndex(keys, options);
+  } catch (e) {
+    // IndexKeySpecsConflict or already exists → ignore
+    if (e?.code === 86 /* IndexKeySpecsConflict */) return;
+    if (String(e).includes('already exists')) return;
+    throw e;
+  }
 }
+
 
 /** -------------------- Health -------------------- **/
 app.get('/health', (_req, res) => res.json({ ok: true }));
@@ -92,16 +83,36 @@ app.delete('/groups/:groupId', async (req, res) => {
   res.json({ ok: true });
 });
 
-/** -------------------- Reports (Super Admin) -------------------- **/
+/** -------------------- Reports -------------------- **/
+// list open reports (normalized shape)
 app.get('/reports', async (_req, res) => {
-  const db = getDb();
-  const reports = await db.collection('reports').find({}).sort({ createdAt: -1 }).toArray();
-  res.json(reports);
-});
+  try {
+    const db = getDb();
+    const docs = await db.collection('reports').find({
+      $or: [{ status: { $exists: false } }, { status: { $ne: 'resolved' } }]
+    }).toArray();
 
-app.post('/reports', async (req, res) => {
-  const r = await addReportMongo(req.body || {});
-  res.status(201).json(r);
+    const mapped = docs.map(r => ({
+      id: r.id || (r._id ? String(r._id) : undefined),
+      _id: r._id ? String(r._id) : undefined,
+      groupId: r.groupId,
+      channelId: r.channelId,
+      targetUserId: r.userId,
+      targetUsername: r.username,
+      actorUserId: r.actorUserId,
+      actorUsername: r.actorUsername,
+      reason: r.reason,
+      status: r.status || 'open',
+      createdAt: r.createdAt || new Date().toISOString(),
+      groupName: r.groupName,
+      channelName: r.channelName
+    }));
+
+    res.json(mapped);
+  } catch (err) {
+    console.error('[GET /reports] error:', err);
+    res.status(500).json({ ok: false, error: 'server error' });
+  }
 });
 
 // ✅ Resolve by UUID id OR Mongo _id; compatible with MongoDB driver v4–v6
@@ -159,7 +170,7 @@ app.put('/reports/:id/resolve', async (req, res) => {
 });
 
 /** -------------------- Channels -------------------- **/
-// create channel (initial members = current group users)
+// create channel
 app.post('/groups/:groupId/channels', async (req, res) => {
   const { groupId } = req.params;
   const { name } = req.body || {};
@@ -239,38 +250,60 @@ app.put('/groups/:groupId/reject/:userId', async (req, res) => {
   res.json(g);
 });
 
-/** -------------------- Channel Bans -------------------- **/
-app.post('/groups/:groupId/channels/:channelId/ban', async (req, res) => {
-  const { groupId, channelId } = req.params;
-  const { userId, username, actorUserId, report } = req.body || {};
+/// BAN at channel + optional report
+app.post('/groups/:gid/channels/:cid/ban', async (req, res) => {
+  try {
+    const db = getDb();
+    const { gid, cid } = req.params;
+    const { userId, username, actorUserId, actorUsername, reason, report } = req.body || {};
 
-  const g = await getGroup(groupId);
-  if (!g) return res.status(404).json({ error: 'Group not found' });
-  const ch = (g.channels || []).find(c => c.id === channelId);
-  if (!ch) return res.status(404).json({ error: 'Channel not found' });
+    const group = await db.collection('groups').findOne({ id: gid });
+    if (!group) return res.status(404).json({ ok: false, error: 'group not found' });
 
-  ch.bannedUserIds = ch.bannedUserIds || [];
-  ch.bannedUsernames = ch.bannedUsernames || [];
-  ch.members = ch.members || [];
+    const idx = (group.channels || []).findIndex(c => c.id === cid);
+    if (idx === -1) return res.status(404).json({ ok: false, error: 'channel not found' });
 
-  if (userId && !ch.bannedUserIds.includes(userId)) ch.bannedUserIds.push(userId);
-  if (username && !ch.bannedUsernames.includes(username)) ch.bannedUsernames.push(username);
+    const ch = group.channels[idx];
 
-  // remove membership when banning by id
-  if (userId) ch.members = ch.members.filter(id => id !== userId);
+    const bannedNames = new Set(ch.bannedUsernames || []);
+    const bannedIds   = new Set(ch.bannedUserIds || ch.bannedUsers || []);
 
-  if (report) {
-    await addReportMongo({
-      groupId, channelId,
-      targetUserId: userId || null,
-      targetUsername: username || null,
-      actorUserId: actorUserId || null,
-      reason: 'ban-in-channel'
-    });
+    if (username) bannedNames.add(username);
+    if (userId)   bannedIds.add(userId);
+
+    ch.bannedUsernames = Array.from(bannedNames);
+    ch.bannedUsers     = Array.from(bannedIds);
+    ch.bannedUserIds   = ch.bannedUsers;
+
+    await db.collection('groups').updateOne(
+      { id: gid, 'channels.id': cid },
+      { $set: { 'channels.$': ch } }
+    );
+
+    let reportDoc;
+    if (report) {
+      reportDoc = {
+        id: 'r_' + Math.random().toString(36).slice(2, 10),
+        groupId: gid,
+        channelId: cid,
+        userId: userId || null,
+        username: username || null,
+        actorUserId: actorUserId || null,
+        actorUsername: actorUsername || null,
+        reason: reason || 'ban',
+        status: 'open',
+        createdAt: new Date().toISOString(),
+        groupName: group.name,
+        channelName: ch.name
+      };
+      await db.collection('reports').insertOne(reportDoc);
+    }
+
+    return res.json({ ok: true, channel: ch, reportId: reportDoc?.id });
+  } catch (err) {
+    console.error('[POST /groups/:gid/channels/:cid/ban] error:', err);
+    res.status(500).json({ ok: false, error: 'server error' });
   }
-
-  await saveGroup(g);
-  res.json({ ok: true, channel: ch });
 });
 
 app.delete('/groups/:groupId/channels/:channelId/ban', async (req, res) => {
@@ -330,9 +363,9 @@ server.listen(PORT, () => {
   console.log(`API running on http://localhost:${PORT}`);
 });
 
-// start PeerJS server on a separate port
-if (process.env.NODE_ENV !== 'test') {
-  require('./peer-server')(); // this starts peer on 4001
+// start PeerJS only outside tests
+if (process.env.NODE_ENV !== 'test' && process.env.START_PEER !== '0') {
+  require('./peer-server')();
 }
 
 /** -------------------- Mongo -------------------- **/

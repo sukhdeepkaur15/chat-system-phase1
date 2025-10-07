@@ -12,8 +12,11 @@
 
     <!-- Super / Group Admin: create group -->
     <div *ngIf="role.includes('super') || role.includes('groupAdmin')" class="row">
-      <input #newGroupName class="input-framed" placeholder="New Group Name" />
-      <button class="btn-blue" (click)="createGroup(newGroupName.value); newGroupName.value=''">
+      <!-- ✅ added data-cy -->
+      <input #newGroupName class="input-framed" placeholder="New Group Name" data-cy="new-group-name" />
+      <!-- ✅ added data-cy -->
+      <button class="btn-blue" data-cy="add-group"
+              (click)="createGroup(newGroupName.value); newGroupName.value=''">
         Add Group
       </button>
     </div>
@@ -69,8 +72,10 @@
           <!-- ONE ROW: Add channel (if GA/Super) + Leave (always if member) + Delete (if GA/Super) -->
           <div class="action-row compact-actions">
             <ng-container *ngIf="canModerate(group)">
-              <input #newChannelName class="input-framed" placeholder="New Channel Name" />
-              <button class="btn-green"
+              <!-- ✅ added data-cy -->
+              <input #newChannelName class="input-framed" placeholder="New Channel Name" data-cy="new-channel-name" />
+              <!-- ✅ added data-cy -->
+              <button class="btn-green" data-cy="add-channel"
                       (click)="addChannelToGroup(group, newChannelName.value); newChannelName.value=''">
                 Add Channel
               </button>
@@ -138,16 +143,16 @@
     </div>
 
     <!-- Messages with avatars + images -->
-    <div class="messages panel-framed">
+    <div class="messages panel-framed" data-cy="messages">
       <div *ngFor="let msg of messages" class="chat-message">
-        <img *ngIf="msg.username" [src]="msg.avatarUrl" class="avatar" />
+        <img *ngIf="msg.avatarUrl" [src]="msg.avatarUrl" class="avatar" />
         <strong>{{ msg.username }}:</strong>
         <span *ngIf="!msg.imageUrl">{{ msg.content }}</span>
         <img *ngIf="msg.imageUrl" [src]="msg.imageUrl" class="chat-image" />
       </div>
     </div>
 
-    <!-- Message input + upload -->
+    <!-- ✅ SINGLE message row (removed duplicate block) -->
     <div class="row">
       <input [(ngModel)]="newMessage" class="input-framed" placeholder="Type message..." [disabled]="isBannedHere" />
       <button class="btn-blue" (click)="sendMessage()" [disabled]="isBannedHere">Send</button>
@@ -161,6 +166,12 @@
       <button class="btn-green" (click)="startVideoChat()">Start Video Chat</button>
       <div id="video-container">
     </div>
+  </div>
+
+  <!-- Video Chat -->
+  <div class="panel-framed" style="margin-top:10px;">
+    <button class="btn-green" (click)="startVideoChat()">Start Video Chat</button>
+    <div id="video-container"></div>
   </div>
 
   <!-- SUPER ADMIN PANEL -->

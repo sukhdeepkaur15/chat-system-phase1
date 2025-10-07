@@ -124,3 +124,5 @@ module.exports = function registerSockets(server, app) {
 
   return io;
 };
+
+

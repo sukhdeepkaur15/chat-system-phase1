@@ -1,4 +1,4 @@
-// src/app/dashboard/dashboard.component.ts
+/// src/app/dashboard/dashboard.component.ts
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -7,7 +7,7 @@ import { Router } from '@angular/router';
 import { AuthService } from '../services/auth.service';
 import { GroupService } from '../services/group.service';
 import { ChatService } from '../services/chat.service';
-import { ApiService } from '../services/api.service';   // ✅ added
+import { ApiService } from '../services/api.service';
 
 import { User } from '../models/user.model';
 import { Group, Channel, Message } from '../models/group.model';
@@ -33,7 +33,7 @@ export class DashboardComponent implements OnInit {
   groups: Group[] = [];
   selectedGroup: Group | null = null;
   selectedChannel: Channel | null = null;
-  messages: Message[] = [];
+  messages: ChatMsg[] = [];
   newMessage = '';
 
   // Super admin user management
@@ -48,7 +48,7 @@ export class DashboardComponent implements OnInit {
     private authService: AuthService,
     private groupService: GroupService,
     private chatService: ChatService,
-    private api: ApiService,                // ✅ added
+    private api: ApiService,
     private router: Router
   ) {}
 
@@ -185,81 +185,121 @@ export class DashboardComponent implements OnInit {
   }
   private loadMessages(groupId: string, channelId: string) {
     this.chatService.getMessages(groupId, channelId).subscribe({
-      next: (msgs) => this.messages = msgs || [],
+      next: (msgs) => {
+        this.messages = (msgs || []) as ChatMsg[];
+      },
       error: () => { this.messages = []; }
     });
   }
 
   /** ---------- Messaging ---------- */
-  sendMessage() {
-    if (!this.selectedGroup || !this.selectedChannel || !this.newMessage.trim()) return;
-    const isChanBanned = (this.selectedChannel.bannedUsers || []).includes(this.currentUserId);
-    const isMember = (this.selectedChannel.members || []).includes(this.currentUserId);
-    if (!this.isSuper && (isChanBanned || !isMember)) {
-      alert('You are not allowed to post in this channel.');
-      return;
-    }
-    this.chatService
-      .sendMessage(
-        this.selectedGroup.id, 
-        this.selectedChannel.id, 
-        this.username,
-        this.currentUser.id, 
-        this.newMessage.trim()
-      )
-      .subscribe({
-        next: () => {
-          this.newMessage = '';
-          this.loadMessages(this.selectedGroup!.id, this.selectedChannel!.id);
-        },
-        error: (err: any) => {
-          if (err?.status === 403) {
-            alert(err?.error?.error || 'You are banned from this channel.');
-          } else {
-            alert('Failed to send message. Please try again.');
-          }
-        }
-      });
+/** ---------- Messaging ---------- */
+sendMessage() {
+  if (!this.selectedGroup || !this.selectedChannel) return;
+
+  const text = (this.newMessage || '').trim();
+  if (!text) return;
+
+  // Access checks (unchanged)
+  const isChanBanned = (this.selectedChannel.bannedUsers || []).includes(this.currentUserId);
+  const isMember     = (this.selectedChannel.members || []).includes(this.currentUserId);
+  if (!this.isSuper && (isChanBanned || !isMember)) {
+    alert('You are not allowed to post in this channel.');
+    return;
   }
 
-  /** ---------- Avatar upload (fixes template error) ---------- */
+  const gid   = this.selectedGroup.id;
+  const cid   = this.selectedChannel.id;
+  const uname = this.username;
+  const uid   = this.currentUser.id;
+
+  // 🔹 Optimistic message
+  const optimisticId = 'opt_' + Math.random().toString(36).slice(2, 10);
+  const optimisticMsg: any = {
+    username: uname,
+    content: text,
+    timestamp: Date.now(),
+    __optimistic: true,
+    __optimisticId: optimisticId
+  };
+  this.messages = [...(this.messages || []), optimisticMsg];
+
+  // Clear input for snappy UX
+  this.newMessage = '';
+
+  this.chatService
+    .sendMessage(gid, cid, uname, uid, text)
+    .subscribe({
+      next: (res: any) => {
+        if (res?.ok && res.message) {
+          // Replace optimistic with server message
+          this.messages = (this.messages || []).map(m =>
+            (m as any).__optimisticId === optimisticId ? res.message : m
+          );
+        }
+        // Reconcile with server truth
+        this.loadMessages(gid, cid);
+      },
+      error: (err: any) => {
+        // Rollback optimistic on failure
+        this.messages = (this.messages || []).filter(
+          m => (m as any).__optimisticId !== optimisticId
+        );
+        if (err?.status === 403) {
+          alert(err?.error?.error || 'You are banned from this channel.');
+        } else {
+          alert('Failed to send message. Please try again.');
+        }
+      }
+    });
+}
+
+  /** ---------- Avatar upload ---------- */
   uploadAvatar(ev: Event) {
     const input = ev.target as HTMLInputElement;
     const file = input?.files?.[0];
     if (!file) return;
     this.api.uploadAvatar(this.currentUserId, file).subscribe({
-      next: (res: any) => {
-        // If your auth service stores avatar locally, update it here
-        // (res could contain { ok, url } depending on your server)
+      next: () => {
         alert('Avatar uploaded successfully.');
       },
       error: () => alert('Failed to upload avatar.')
     });
   }
 
-  /** ---------- NEW: Upload & send image ---------- */
-  sendImage(event: Event) {
+/** ---------- Upload & send image ---------- */
+sendImage(event: Event) {
   const input = event.target as HTMLInputElement;
   const file = input?.files?.[0];
   if (!file || !this.selectedGroup || !this.selectedChannel) return;
 
+  const gid = this.selectedGroup.id;
+  const cid = this.selectedChannel.id;
+
   this.chatService
-    .sendImageMessage(
-      this.selectedGroup.id,
-      this.selectedChannel.id,
-      this.username,
-      this.currentUser.id,
-      file
-    )
+    .sendImageMessage(gid, cid, this.username, this.currentUser.id, file)
     .subscribe({
-      next: () => console.log('image uploaded'),
+      next: (res: any) => {
+        // Optimistic append if server returns a URL (helps UI & Cypress)
+        if (res?.ok && res.imageUrl) {
+          const imgMsg: ChatMsg = {
+            username: this.username,
+            content: '',              // ✅ satisfy Message.content (required)
+            imageUrl: res.imageUrl,
+            timestamp: Date.now(),
+            type: 'image'
+          };
+          this.messages = [...(this.messages || []), imgMsg];
+        }
+        // Reconcile with server truth (covers refresh/other writers)
+        this.loadMessages(gid, cid);
+      },
       error: (err: any) => console.error(err)
     });
 }
 
-/** ---------- Start video chat ---------- */
+  /** ---------- Start video chat ---------- */
   startVideoChat() {
-    // Navigate to your VideoChat component route or open a panel
     this.router.navigate(['/video']);
   }
 
@@ -417,9 +457,29 @@ export class DashboardComponent implements OnInit {
       .subscribe({ next: () => this.refreshGroups() });
   }
 
-  /** Utility */
+  /** ---------- Utility ---------- */
   getUserById(id: string): User | undefined {
     return this.authService.getAllUsers().find(u => u.id === id);
   }
-}
 
+  /** ---------- Restored helpers used by template ---------- */
+  public groupMemberIds(group: any): string[] {
+    const users   = Array.isArray(group?.users) ? group.users : [];
+    const members = Array.isArray(group?.members) ? group.members : [];
+    // unique by id
+    return [...users, ...members].filter((v: string, i: number, a: string[]) => a.indexOf(v) === i);
+  }
+
+  public channelMemberIds(ch: any): string[] {
+    if (!ch) return [];
+    const members: string[] = Array.isArray(ch?.members) ? ch.members : [];
+    const bannedNames: string[] = Array.isArray((ch as any)?.bannedUsernames)
+      ? (ch as any).bannedUsernames
+      : [];
+    // keep members whose username is not banned-by-name
+    return members.filter(id => {
+      const uname = this.getUserById(id)?.username || '';
+      return !bannedNames.includes(uname);
+    });
+  }
+}
