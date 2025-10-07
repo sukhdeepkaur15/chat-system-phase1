@@ -1,13 +1,13 @@
 import { Component } from '@angular/core';
 import { Router } from '@angular/router';
-import { AuthService } from '../services/auth.service';
 import { CommonModule } from '@angular/common';
-import { FormsModule } from '@angular/forms'; // <-- import this
+import { FormsModule } from '@angular/forms';
+import { AuthService } from '../services/auth.service';
 
 @Component({
-  selector: 'app-login',
   standalone: true,
-  imports: [CommonModule, FormsModule], // <-- add FormsModule here
+  selector: 'app-login',
+  imports: [CommonModule, FormsModule],
   templateUrl: './login.component.html',
   styleUrls: ['./login.component.css']
 })
@@ -19,14 +19,17 @@ export class LoginComponent {
   constructor(private authService: AuthService, private router: Router) {}
 
   login() {
-    const success = this.authService.login(this.username, this.password);
-    if (success) {
+    const ok = this.authService.login(this.username.trim(), this.password);
+
+    if (ok) {
       this.router.navigate(['/dashboard']);
     } else {
       this.errorMessage = 'Invalid username or password';
+      alert(this.errorMessage); // optional visual feedback
     }
   }
 }
+
 
 
   

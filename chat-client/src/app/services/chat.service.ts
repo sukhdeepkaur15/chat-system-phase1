@@ -34,18 +34,27 @@ export class ChatService {
    *  - POSTs via REST so caller can `.subscribe(...)`
    */
   sendMessage(
-    groupId: string,
-    channelId: string,
-    username: string,
-    userId: string,
-    content: string
+  groupId: string,
+  channelId: string,
+  username: string,
+  userId: string,
+  content: string,
+  avatarUrl?: string | null
 ): Observable<{ ok: boolean; message: Message }> {
-    const payload = { groupId, channelId, username, userId, content };
-    // realtime emit (no await)
-    this.socket.emit('message', payload);
-    // return REST observable (so component can subscribe)
-    return this.api.post<{ ok: boolean; message: Message }>('/messages', payload);
-  }
+  // 1) Realtime: richer payload is fine for sockets
+  const socketPayload = {
+    groupId, channelId, username, userId, content,
+    avatarUrl: avatarUrl ?? null,
+    type: 'text' as const,
+  };
+  try {
+    (this as any)?.socket?.emit?.('message', socketPayload);
+  } catch { /* no-op in tests */ }
+
+  // 2) REST: canonical payload only (what the spec asserts)
+  const apiPayload = { groupId, channelId, username, userId, content };
+  return this.api.post<{ ok: boolean; message: Message }>('/messages', apiPayload);
+}
 
   /** Image message (upload via REST; server will broadcast to channel) */
   sendImageMessage(

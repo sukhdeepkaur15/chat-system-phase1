@@ -1,14 +1,36 @@
-<div class="login-card">
-  <h2>Chat System Login</h2>
-  <div>
-    <input type="text" placeholder="Username" [(ngModel)]="username">
+<!-- src/app/login/login.component.html -->
+<div class="login-card" data-cy="login-card">
+  <h2>Login</h2>
+
+  <div class="row">
+    <input
+      data-cy="username"
+      [(ngModel)]="username"
+      placeholder="Username"
+      class="input-framed"
+    />
   </div>
-  <div>
-    <input type="password" placeholder="Password" [(ngModel)]="password">
+
+  <div class="row" style="margin-top:8px;">
+    <input
+      data-cy="password"
+      [(ngModel)]="password"
+      type="password"
+      placeholder="Password"
+      class="input-framed"
+    />
   </div>
-  <div>
-    <button (click)="login()">Login</button>
+
+  <div class="row" style="margin-top:12px;">
+    <button
+      data-cy="login"
+      class="btn-blue"
+      (click)="login()"
+      type="button"
+    >
+      Login
+    </button>
   </div>
-  <div *ngIf="errorMessage" class="error">{{ errorMessage }}</div>
 </div>
+
 
