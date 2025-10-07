@@ -1,7 +1,9 @@
+// chat-server/routes/messages.js
 const express = require('express');
 const { getDb } = require('../mongo');
 
 const router = express.Router();
+const { getDb } = require('../mongo');
 
 /**
  * Parse an optional "before" value:

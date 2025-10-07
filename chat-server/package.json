@@ -9,7 +9,7 @@
     "dev": "nodemon index.js",
     "start:peer": "peerjs --port 9000 --path /peerjs",
     "dev:all": "concurrently -k -n api,peer \"npm:dev\" \"npm:start:peer\"",
-    "test": "mocha \"test/**/*.test.js\" --timeout 10000",
+    "test": "set NODE_ENV=test&& set PORT=0&& mocha \"test/**/*.test.js\" --timeout 10000",
     "test:watch": "mocha \"test/**/*.test.js\" --watch",
     "coverage": "nyc npm test"
   },

@@ -1,31 +1,38 @@
-const { ExpressPeerServer } = require('peer');
+// chat-server/peer-server.js
 const express = require('express');
 const http = require('http');
+const { ExpressPeerServer } = require('peer');
 
 function startPeerServer() {
   const app = express();
   const server = http.createServer(app);
 
-  // Internal path is '/', we mount the whole peer server at /peerjs
+  const port = Number(process.env.PEER_PORT || 4001);
+  const path = '/peerjs';
+
   const peerServer = ExpressPeerServer(server, {
-    path: '/',          // <— important
-    debug: true
+    path,
+    // debug: true,
+    // proxied: true, // if needed behind proxy
   });
 
-  app.use('/peerjs', peerServer); // <— mount point is /peerjs
+  app.use(path, peerServer);
 
-  peerServer.on('connection', (client) => {
-    console.log('[peer] client connected:', client.id);
+  // If the port is already in use, DON'T crash the whole Node app.
+  server.on('error', (err) => {
+    if (err && err.code === 'EADDRINUSE') {
+      console.warn(`[peer] Port ${port} is in use. Skipping PeerJS startup (video calls disabled).`);
+    } else {
+      console.error('[peer] server error:', err);
+    }
   });
 
-  peerServer.on('disconnect', (client) => {
-    console.log('[peer] client disconnected:', client.id);
+  server.listen(port, () => {
+    console.log(`Peer server running at http://localhost:${port}${path}`);
   });
 
-  const PORT = process.env.PEER_PORT || 4001;
-  server.listen(PORT, () => {
-    console.log(`Peer server running at http://localhost:${PORT}/peerjs`);
-  });
+  return server;
 }
 
 module.exports = startPeerServer;
+
