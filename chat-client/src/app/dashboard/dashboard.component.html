@@ -1,7 +1,7 @@
 <div class="dashboard">
   <!-- WELCOME PANEL (now also contains the groups list) -->
   <div class="hero">
-   <h2 data-cy="welcome" style="margin:0 0 4px;">Welcome, {{ greetingTitle }} 🎊</h2>
+    <h2 data-cy="welcome" style="margin:0 0 4px;">Welcome, {{ greetingTitle }} 🎊</h2>
     <p style="margin:0 0 14px;">Your Role: {{ roleDisplay }}</p>
 
     <!-- Profile Avatar Upload -->
@@ -12,9 +12,7 @@
 
     <!-- Super / Group Admin: create group -->
     <div *ngIf="role.includes('super') || role.includes('groupAdmin')" class="row">
-      <!-- ✅ added data-cy -->
       <input #newGroupName class="input-framed" placeholder="New Group Name" data-cy="new-group-name" />
-      <!-- ✅ added data-cy -->
       <button class="btn-blue" data-cy="add-group"
               (click)="createGroup(newGroupName.value); newGroupName.value=''">
         Add Group
@@ -49,17 +47,12 @@
         <!-- Selected group panel -->
         <div *ngIf="selectedGroup?.id === group.id" class="channels-panel panel-framed" style="margin-top:10px;">
           <ul>
-            <li
-              *ngFor="let ch of visibleChannels; trackBy: trackById"
-              (click)="selectChannel(ch)"
-              style="cursor:pointer"
-            >
+            <li *ngFor="let ch of visibleChannels; trackBy: trackById"
+                (click)="selectChannel(ch)" style="cursor:pointer">
               {{ ch.name }}
-              <button
-                *ngIf="canModerate(group)"
-                class="btn-orange"
-                (click)="removeChannel(group, ch.id); $event.stopPropagation()"
-              >
+              <button *ngIf="canModerate(group)"
+                      class="btn-orange"
+                      (click)="removeChannel(group, ch.id); $event.stopPropagation()">
                 Remove
               </button>
             </li>
@@ -72,9 +65,7 @@
           <!-- ONE ROW: Add channel (if GA/Super) + Leave (always if member) + Delete (if GA/Super) -->
           <div class="action-row compact-actions">
             <ng-container *ngIf="canModerate(group)">
-              <!-- ✅ added data-cy -->
               <input #newChannelName class="input-framed" placeholder="New Channel Name" data-cy="new-channel-name" />
-              <!-- ✅ added data-cy -->
               <button class="btn-green" data-cy="add-channel"
                       (click)="addChannelToGroup(group, newChannelName.value); newChannelName.value=''">
                 Add Channel
@@ -103,11 +94,9 @@
             <div class="ban-title">Ban at Channel</div>
             <div class="row">
               <input #banName class="input-framed" placeholder="Username to ban" />
-              <button
-                class="btn-red"
-                (click)="banUser(selectedGroup, selectedChannel, banName.value); banName.value=''"
-                [disabled]="!selectedChannel || !banName.value"
-              >
+              <button class="btn-red"
+                      (click)="banUser(selectedGroup, selectedChannel, banName.value); banName.value=''"
+                      [disabled]="!selectedChannel || !banName.value">
                 Ban
               </button>
             </div>
@@ -115,11 +104,9 @@
             <ul>
               <li *ngFor="let uname of (selectedChannel?.bannedUsernames || [])">
                 {{ uname }}
-                <button
-                  class="btn-green"
-                  (click)="unbanUser(selectedGroup, selectedChannel, uname)"
-                  [disabled]="!selectedChannel"
-                >
+                <button class="btn-green"
+                        (click)="unbanUser(selectedGroup, selectedChannel, uname)"
+                        [disabled]="!selectedChannel">
                   Unban
                 </button>
               </li>
@@ -135,12 +122,18 @@
   </div>
 
   <!-- Chat Box -->
-  <div *ngIf="selectedChannel" class="chat-card" style="max-width:900px;margin:12px auto 0;">
-    <h4>Channel: {{ selectedChannel.name }}</h4>
+<div *ngIf="selectedChannel" class="chat-card" style="max-width:900px;margin:12px auto 0;">
+  <h4>Channel: {{ selectedChannel.name }}</h4>
 
-    <div *ngIf="isBannedHere" class="ban-banner">
-      You are banned from this channel. You can read past messages but cannot send new ones.
-    </div>
+  <div *ngIf="isBannedHere" class="ban-banner">
+    You are banned from this channel. You can read past messages but cannot send new ones.
+  </div>
+  
+    <!-- show current user's avatar if set -->
+    <img *ngIf="currentUser?.avatarUrl"
+         [src]="currentUser.avatarUrl"
+         alt="My avatar"
+         style="width:40px;height:40px;border-radius:50%;margin-right:8px;" />
 
     <!-- Messages with avatars + images -->
     <div class="messages panel-framed" data-cy="messages">
@@ -152,107 +145,129 @@
       </div>
     </div>
 
-    <!-- ✅ SINGLE message row (removed duplicate block) -->
-    <div class="row">
-      <input [(ngModel)]="newMessage" class="input-framed" placeholder="Type message..." [disabled]="isBannedHere" />
-      <button class="btn-blue" (click)="sendMessage()" [disabled]="isBannedHere">Send</button>
-      <!-- Image Upload Button -->
-      <input type="file" accept="image/*" (change)="sendImage($event)" />
-     </div>
-    </div>
+    <!-- ONE input row only (stable hooks) -->
+  <div class="row">
+    <input
+      [(ngModel)]="newMessage"
+      class="input-framed"
+      placeholder="Type message..."
+      [disabled]="isBannedHere"
+      data-cy="message-input"
+    />
+    <button
+      class="btn-blue"
+      (click)="sendMessage()"
+      [disabled]="isBannedHere"
+      data-cy="send-btn"
+    >
+      Send
+    </button>
 
-    <!-- Video Chat -->
-    <div class="panel-framed" style="margin-top:10px;">
-      <button class="btn-green" (click)="startVideoChat()">Start Video Chat</button>
-      <div id="video-container">
-    </div>
+    <!-- Chat image upload -->
+    <input
+      type="file"
+      accept="image/*"
+      (change)="sendImage($event)"
+      [disabled]="isBannedHere"
+      data-cy="chat-upload"
+    />
   </div>
+</div>
 
-  <!-- Video Chat -->
-  <div class="panel-framed" style="margin-top:10px;">
-    <button class="btn-green" (click)="startVideoChat()">Start Video Chat</button>
-    <div id="video-container"></div>
+    <!-- Video controls -->
+    <div class="controls" style="display:flex; gap:8px; align-items:center; margin-top:12px;">
+      <button class="btn-green" (click)="startVideoChat()" [disabled]="!joined || startingVideo">Start Video Chat</button>
+      <button class="btn-orange" (click)="endVideoChat()" [disabled]="!inCall">End Call</button>
+
+      <input class="input" placeholder="Remote Peer ID" [(ngModel)]="remotePeerId" />
+      <button class="btn-blue" (click)="callRemote()" [disabled]="!localStream || !remotePeerId">Call</button>
+
+      <span style="margin-left:auto">Your ID: <code>{{ myPeerId || '—' }}</code></span>
+      <button class="btn-blue" (click)="copyMyId()" [disabled]="!myPeerId">Copy</button>
+      <button class="btn-grey" (click)="newPeerId()">New ID</button>
+    </div>
+
+    <div class="grid" style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:12px;">
+      <div class="panel-framed">
+        <strong>Me</strong>
+        <video #localVideo autoplay playsinline muted style="width:100%; border-radius:8px;"></video>
+      </div>
+      <div class="panel-framed">
+        <strong>Remote</strong>
+        <video #remoteVideo autoplay playsinline style="width:100%; border-radius:8px;"></video>
+      </div>
+    </div>
   </div>
 
   <!-- SUPER ADMIN PANEL -->
   <div *ngIf="role.includes('super')" class="super-admin-panel">
     <h2>Super Admin Panel</h2>
+
     <!-- Create User -->
-  <h3>Create New User</h3>
-  <div class="create-user-panel">
-    <div class="row">
-      <input [(ngModel)]="newUsername" class="input-framed-lg" placeholder="Username" />
-      <input [(ngModel)]="newEmail" class="input-framed-lg" placeholder="Email" />
-      <select [(ngModel)]="newRole" class="input-framed-lg">
-        <option value="user">User</option>
-        <option value="groupAdmin">Group Admin</option>
-        <option value="super">Super Admin</option>
-      </select>
-      <button class="btn-blue" (click)="createUser()">Create User</button>
+    <h3>Create New User</h3>
+    <div class="create-user-panel">
+      <div class="row">
+        <input [(ngModel)]="newUsername" class="input-framed-lg" placeholder="Username" />
+        <input [(ngModel)]="newEmail" class="input-framed-lg" placeholder="Email" />
+        <select [(ngModel)]="newRole" class="input-framed-lg">
+          <option value="user">User</option>
+          <option value="groupAdmin">Group Admin</option>
+          <option value="super">Super Admin</option>
+        </select>
+        <button class="btn-blue" (click)="createUser()">Create User</button>
+      </div>
     </div>
+
+    <!-- Manage Users -->
+    <h3>Manage Users</h3>
+    <table cellpadding="5" style="width:100%;">
+      <tr class="table-head">
+        <th>Username</th>
+        <th>Email</th>
+        <th>Roles</th>
+        <th>Actions</th>
+      </tr>
+      <tr *ngFor="let u of allUsers">
+        <td>{{ u.username }}</td>
+        <td>{{ u.email }}</td>
+        <td>{{ u.roles.join(', ') }}</td>
+        <td>
+          <button class="btn-green" (click)="promoteUser(u, 'groupAdmin')">Promote to Group Admin</button>
+          <button class="btn-blue"  (click)="promoteUser(u, 'super')">Promote to Super</button>
+          <button class="btn-red"   (click)="deleteUser(u)">Delete</button>
+        </td>
+      </tr>
+    </table>
+
+    <!-- Moderation Reports -->
+    <h3 style="margin-top:16px;">Moderation Reports</h3>
+    <div *ngIf="!reports?.length" style="opacity:.8">No pending reports.</div>
+
+    <ul *ngIf="reports?.length">
+      <li *ngFor="let r of reports" style="margin-bottom:10px;">
+        <div>
+          <strong>{{ r.reason || 'Ban issued' }}</strong>
+          — Target: <code>{{ r.targetUsername || r.targetUserId || '—' }}</code>
+          — Group: <code>{{ r.groupName || r.groupId }}</code>
+          — Channel: <code>{{ r.channelName || r.channelId }}</code>
+          — By: <code>{{ r.actorUsername || r.actorUserId || '—' }}</code>
+          — <small>{{ r.createdAt | date:'short' }}</small>
+          — <em>Status: {{ r.status || 'open' }}</em>
+        </div>
+
+        <div style="margin-top:6px;">
+          <button class="btn-green"
+                  *ngIf="(r.status || 'open') === 'open'"
+                  (click)="resolveReport(r)">
+            Mark Resolved
+          </button>
+          <span *ngIf="r.status === 'resolved'" style="color:#2e7d32;">Resolved</span>
+        </div>
+      </li>
+    </ul>
   </div>
-
-  <!-- Manage Users -->
-  <h3>Manage Users</h3>
-  <table cellpadding="5" style="width:100%;">
-    <tr class="table-head">
-      <th>Username</th>
-      <th>Email</th>
-      <th>Roles</th>
-      <th>Actions</th>
-    </tr>
-    <tr *ngFor="let u of allUsers">
-      <td>{{ u.username }}</td>
-      <td>{{ u.email }}</td>
-      <td>{{ u.roles.join(', ') }}</td>
-      <td>
-        <button class="btn-green" (click)="promoteUser(u, 'groupAdmin')">Promote to Group Admin</button>
-        <button class="btn-blue"  (click)="promoteUser(u, 'super')">Promote to Super</button>
-        <button class="btn-red"   (click)="deleteUser(u)">Delete</button>
-      </td>
-    </tr>
-  </table>
-
-  <!-- Moderation Reports -->
-<h3 style="margin-top:16px;">Moderation Reports</h3>
-<div *ngIf="!reports?.length" style="opacity:.8">No pending reports.</div>
-
-<ul *ngIf="reports?.length">
-  <li *ngFor="let r of reports" style="margin-bottom:10px;">
-    <div>
-      <strong>{{ r.reason || 'Ban issued' }}</strong>
-      — Target:
-      <code>{{ r.targetUsername || r.targetUserId || '—' }}</code>
-      — Group: <code>{{ r.groupName || r.groupId }}</code>
-      — Channel: <code>{{ r.channelName || r.channelId }}</code>
-      — By: <code>{{ r.actorUsername || r.actorUserId || '—' }}</code>
-      — <small>{{ r.createdAt | date:'short' }}</small>
-      — <em>Status: {{ r.status || 'open' }}</em>
-    </div>
-
-    <!-- Show resolve button while report is open -->
-    <div style="margin-top:6px;">
-      <button
-        class="btn-green"
-        *ngIf="(r.status || 'open') === 'open'"
-        (click)="resolveReport(r)"
-      >
-        Mark Resolved
-      </button>
-      <span *ngIf="r.status === 'resolved'" style="color:#2e7d32;">Resolved</span>
-    </div>
-  </li>
-</ul>
-</div>
-
-<div class="logout-center" style="display:flex; justify-content:center; margin:16px 0 8px;">
-  <button class="btn-red btn-wide" (click)="logout()">Logout</button>
-</div>
-
-
-
-  
-
-
-
+ 
+  <div class="logout-center" style="display:flex; justify-content:center; margin:16px 0 8px;">
+    <button class="btn-red btn-wide" (click)="logout()" data-cy="logout">Logout</button>
+  </div>
 

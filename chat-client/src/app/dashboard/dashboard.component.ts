@@ -1,8 +1,10 @@
-/// src/app/dashboard/dashboard.component.ts
-import { Component, OnInit } from '@angular/core';
+// src/app/dashboard/dashboard.component.ts
+import { Component, ElementRef, OnInit, NgZone, ViewChild, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
+
+import Peer, { MediaConnection } from 'peerjs';
 
 import { AuthService } from '../services/auth.service';
 import { GroupService } from '../services/group.service';
@@ -17,6 +19,7 @@ type ChatMsg = Message & {
   imageUrl?: string;
   type?: 'text' | 'image';
 };
+type UIUser = User & { avatarUrl?: string | null };
 
 @Component({
   selector: 'app-dashboard',
@@ -25,10 +28,10 @@ type ChatMsg = Message & {
   templateUrl: './dashboard.component.html',
   styleUrls: ['./dashboard.component.css']
 })
-export class DashboardComponent implements OnInit {
+export class DashboardComponent implements OnInit, OnDestroy {
   username = '';
   role: string[] = [];
-  currentUser!: User;
+  currentUser!: UIUser;
 
   groups: Group[] = [];
   selectedGroup: Group | null = null;
@@ -44,15 +47,59 @@ export class DashboardComponent implements OnInit {
 
   reports: any[] = [];
 
+  /** ---------- Video chat refs ---------- */
+  @ViewChild('localVideo',  { static: true })  localVideoRef!: ElementRef<HTMLVideoElement>;
+  @ViewChild('remoteVideo', { static: true })  remoteVideoRef!: ElementRef<HTMLVideoElement>;
+
+  /** ---------- PeerJS state ---------- */
+  peer?: Peer;
+  currentCall?: MediaConnection;
+  myPeerId = '';
+  remotePeerId = '';
+  localStream?: MediaStream;
+  inCall = false;
+  startingVideo = false;
+
+  // Used by the template to enable the Start Video button
+  joined = false;
+
   constructor(
     private authService: AuthService,
     private groupService: GroupService,
     private chatService: ChatService,
     private api: ApiService,
-    private router: Router
+    private router: Router,
+    private zone: NgZone
   ) {}
 
-  // Role helpers
+  /** ---------- Lifecycle ---------- */
+  ngOnInit() {
+    const user = this.authService.getUser();
+    if (!user) {
+      this.router.navigate(['/login']);
+      return;
+    }
+    this.currentUser = user;
+    this.username = user.username;
+    this.role = user.roles || [];
+
+    this.refreshGroups();
+    if (this.isSuper) {
+      this.allUsers = this.authService.getAllUsers();
+      this.loadReports();
+    }
+
+    // IMPORTANT: do NOT init Peer here. We only create it when user clicks Start Video Chat.
+    // This avoids the unhandled error crash if the peer server isn’t reachable.
+  }
+
+  ngOnDestroy(): void {
+    this.endCall(true);
+    try { this.peer?.destroy(); } catch {}
+    this.peer = undefined;
+  }
+
+  /** ---------- Role helpers ---------- */
   get isSuper(): boolean {
     const r = this.role || [];
     return r.includes('super') || r.includes('superAdmin');
@@ -101,23 +148,7 @@ export class DashboardComponent implements OnInit {
     );
   }
 
-  ngOnInit() {
-    const user = this.authService.getUser();
-    if (!user) {
-      this.router.navigate(['/login']);
-      return;
-    }
-    this.currentUser = user;
-    this.username = user.username;
-    this.role = user.roles || [];
-
-    this.refreshGroups();
-    if (this.isSuper) {
-      this.allUsers = this.authService.getAllUsers();
-      this.loadReports();
-    }
-  }
-
+  /** ---------- Data ---------- */
   private loadGroups(): void {
     this.groupService.getGroups().subscribe({
       next: (allGroups) => {
@@ -140,6 +171,7 @@ export class DashboardComponent implements OnInit {
         this.selectedGroup = null;
         this.selectedChannel = null;
         this.messages = [];
+        this.joined = false;
       }
     });
   }
@@ -171,6 +203,7 @@ export class DashboardComponent implements OnInit {
     this.selectedGroup = this.groups.find(g => g.id === group.id) ?? group;
     this.selectedChannel = null;
     this.messages = [];
+    this.joined = false;
   }
   selectChannel(channel: Channel) {
     if (!this.selectedGroup) return;
@@ -181,127 +214,276 @@ export class DashboardComponent implements OnInit {
       return;
     }
     this.selectedChannel = channel;
+    this.joined = true; // enable Start Video Chat in the UI
     this.loadMessages(this.selectedGroup.id, channel.id);
   }
   private loadMessages(groupId: string, channelId: string) {
     this.chatService.getMessages(groupId, channelId).subscribe({
-      next: (msgs) => {
-        this.messages = (msgs || []) as ChatMsg[];
-      },
+      next: (msgs) => { this.messages = (msgs || []) as ChatMsg[]; },
       error: () => { this.messages = []; }
     });
   }
 
   /** ---------- Messaging ---------- */
-/** ---------- Messaging ---------- */
-sendMessage() {
-  if (!this.selectedGroup || !this.selectedChannel) return;
+  sendMessage() {
+    if (!this.selectedGroup || !this.selectedChannel) return;
 
-  const text = (this.newMessage || '').trim();
-  if (!text) return;
+    const text = (this.newMessage || '').trim();
+    if (!text) return;
 
-  // Access checks (unchanged)
-  const isChanBanned = (this.selectedChannel.bannedUsers || []).includes(this.currentUserId);
-  const isMember     = (this.selectedChannel.members || []).includes(this.currentUserId);
-  if (!this.isSuper && (isChanBanned || !isMember)) {
-    alert('You are not allowed to post in this channel.');
-    return;
-  }
+    const isChanBanned = (this.selectedChannel.bannedUsers || []).includes(this.currentUserId);
+    const isMember     = (this.selectedChannel.members || []).includes(this.currentUserId);
+    if (!this.isSuper && (isChanBanned || !isMember)) {
+      alert('You are not allowed to post in this channel.');
+      return;
+    }
 
-  const gid   = this.selectedGroup.id;
-  const cid   = this.selectedChannel.id;
-  const uname = this.username;
-  const uid   = this.currentUser.id;
+    const gid   = this.selectedGroup.id;
+    const cid   = this.selectedChannel.id;
+    const uname = this.username;
+    const uid   = this.currentUser.id;
 
-  // 🔹 Optimistic message
-  const optimisticId = 'opt_' + Math.random().toString(36).slice(2, 10);
-  const optimisticMsg: any = {
-    username: uname,
-    content: text,
-    timestamp: Date.now(),
-    __optimistic: true,
-    __optimisticId: optimisticId
-  };
-  this.messages = [...(this.messages || []), optimisticMsg];
+    const optimisticId = 'opt_' + Math.random().toString(36).slice(2, 10);
+    const optimisticMsg: any = {
+      username: uname,
+      content: text,
+      timestamp: Date.now(),
+      __optimistic: true,
+      __optimisticId: optimisticId
+    };
+    this.messages = [...(this.messages || []), optimisticMsg];
+    this.newMessage = '';
 
-  // Clear input for snappy UX
-  this.newMessage = '';
-
-  this.chatService
-    .sendMessage(gid, cid, uname, uid, text)
-    .subscribe({
-      next: (res: any) => {
-        if (res?.ok && res.message) {
-          // Replace optimistic with server message
-          this.messages = (this.messages || []).map(m =>
-            (m as any).__optimisticId === optimisticId ? res.message : m
+    this.chatService
+      .sendMessage(gid, cid, uname, uid, text)
+      .subscribe({
+        next: (res: any) => {
+          if (res?.ok && res.message) {
+            this.messages = (this.messages || []).map(m =>
+              (m as any).__optimisticId === optimisticId ? res.message : m
+            );
+          }
+          this.loadMessages(gid, cid);
+        },
+        error: (err: any) => {
+          this.messages = (this.messages || []).filter(
+            m => (m as any).__optimisticId !== optimisticId
           );
+          if (err?.status === 403) {
+            alert(err?.error?.error || 'You are banned from this channel.');
+          } else {
+            alert('Failed to send message. Please try again.');
+          }
         }
-        // Reconcile with server truth
-        this.loadMessages(gid, cid);
-      },
-      error: (err: any) => {
-        // Rollback optimistic on failure
-        this.messages = (this.messages || []).filter(
-          m => (m as any).__optimisticId !== optimisticId
-        );
-        if (err?.status === 403) {
-          alert(err?.error?.error || 'You are banned from this channel.');
-        } else {
-          alert('Failed to send message. Please try again.');
-        }
-      }
-    });
-}
+      });
+  }
 
   /** ---------- Avatar upload ---------- */
   uploadAvatar(ev: Event) {
     const input = ev.target as HTMLInputElement;
     const file = input?.files?.[0];
     if (!file) return;
+
     this.api.uploadAvatar(this.currentUserId, file).subscribe({
-      next: () => {
+      next: (res) => {
+        const url = (res as any)?.avatarUrl || (res as any)?.url || (res as any)?.imageUrl;
+        if (!url) { alert('Upload succeeded but no URL returned.'); return; }
+
+        (this.currentUser as any).avatarUrl = url;
+        this.authService.updateAvatar(this.currentUserId, url);
+        if (input) input.value = '';
         alert('Avatar uploaded successfully.');
       },
-      error: () => alert('Failed to upload avatar.')
+      error: () => {
+        alert('Failed to upload avatar.');
+        if (input) input.value = '';
+      }
     });
   }
 
-/** ---------- Upload & send image ---------- */
-sendImage(event: Event) {
-  const input = event.target as HTMLInputElement;
-  const file = input?.files?.[0];
-  if (!file || !this.selectedGroup || !this.selectedChannel) return;
+  /** ---------- Upload & send image ---------- */
+  sendImage(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input?.files?.[0];
+    if (!file || !this.selectedGroup || !this.selectedChannel) return;
 
-  const gid = this.selectedGroup.id;
-  const cid = this.selectedChannel.id;
+    const gid = this.selectedGroup.id;
+    const cid = this.selectedChannel.id;
 
-  this.chatService
-    .sendImageMessage(gid, cid, this.username, this.currentUser.id, file)
-    .subscribe({
-      next: (res: any) => {
-        // Optimistic append if server returns a URL (helps UI & Cypress)
-        if (res?.ok && res.imageUrl) {
-          const imgMsg: ChatMsg = {
-            username: this.username,
-            content: '',              // ✅ satisfy Message.content (required)
-            imageUrl: res.imageUrl,
-            timestamp: Date.now(),
-            type: 'image'
-          };
-          this.messages = [...(this.messages || []), imgMsg];
-        }
-        // Reconcile with server truth (covers refresh/other writers)
-        this.loadMessages(gid, cid);
-      },
-      error: (err: any) => console.error(err)
-    });
+    this.chatService
+      .sendImageMessage(gid, cid, this.username, this.currentUser.id, file)
+      .subscribe({
+        next: (res: any) => {
+          if (res?.ok && res.imageUrl) {
+            const imgMsg: ChatMsg = {
+              username: this.username,
+              content: '',
+              imageUrl: res.imageUrl,
+              timestamp: Date.now(),
+              type: 'image'
+            };
+            this.messages = [...(this.messages || []), imgMsg];
+          }
+          this.loadMessages(gid, cid);
+        },
+        error: (err: any) => console.error(err)
+      });
+  }
+
+  // =======================
+  // PeerJS helpers
+  // =======================
+
+  /** Create a Peer instance (only when needed) */
+  private ensurePeer(): void {
+    if (this.peer && !(this.peer as any).destroyed) return;
+
+    const isHttps = location.protocol === 'https:';
+    const host = location.hostname || 'localhost';
+
+    try {
+      this.peer = new Peer({
+        host,
+        port: 4001,
+        path: '/peerjs',
+        secure: isHttps,
+        debug: 1
+      });
+
+      this.peer.on('open', id => {
+        this.zone.run(() => {
+          this.myPeerId = id;
+          console.log('[peer] open', id);
+        });
+      });
+
+      this.peer.on('error', err => {
+        // Don’t crash the app; just log
+        console.warn('[peer] error', err);
+      });
+
+      // Incoming calls
+      this.peer.on('call', (call: MediaConnection) => {
+        console.log('[peer] incoming call from', call.peer);
+        try { this.currentCall?.close(); } catch {}
+        this.currentCall = call;
+
+        call.on('stream', s => this.attachRemote(s));
+        call.on('close',  () => { this.attachRemote(null); this.inCall = false; });
+        call.on('error',  e => console.error('[call] error', e));
+
+        // two-way if we have local media; receive-only otherwise
+        call.answer(this.localStream || undefined);
+        this.inCall = true;
+      });
+    } catch (e) {
+      console.warn('[peer] failed to construct Peer', e);
+    }
+  }
+
+  /** Start local camera/mic and display in the "Me" tile; also creates Peer */
+  async startVideoChat() {
+    if (this.startingVideo) return;
+    this.startingVideo = true;
+    try {
+      if (!this.localStream) {
+        this.localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        this.attachLocal(this.localStream);
+      }
+      this.ensurePeer();
+      if (this.peer?.id && !this.myPeerId) this.myPeerId = this.peer.id;
+    } catch (e) {
+      alert('Could not start video (camera/mic permission or device busy). Close other apps and try again.');
+      console.error('[getUserMedia error]', e);
+    } finally {
+      this.startingVideo = false;
+    }
+  }
+
+  /** Place an outgoing call to the entered remote ID */
+  callPeer() {
+    if (!this.remotePeerId) { alert('Enter Remote Peer ID'); return; }
+    this.ensurePeer();
+    if (!this.localStream) { alert('Click "Start Video Chat" first.'); return; }
+
+    const call = this.peer!.call(this.remotePeerId, this.localStream);
+    if (!call) { alert('Failed to start call'); return; }
+
+    try { this.currentCall?.close(); } catch {}
+    this.currentCall = call;
+
+    call.on('stream', s => this.attachRemote(s));
+    call.on('close',  () => { this.attachRemote(null); this.inCall = false; });
+    call.on('error',  e => console.error('[call] error', e));
+
+    this.inCall = true;
+  }
+
+  // For template alias compatibility
+  callRemote() { this.callPeer(); }
+  endVideoChat() { this.endCall(); }
+
+  /** End call; optionally keep camera running */
+  endCall(keepLocal = false) {
+    try { this.currentCall?.close(); } catch {}
+    this.currentCall = undefined;
+    this.inCall = false;
+
+    if (!keepLocal && this.localStream) {
+      this.localStream.getTracks().forEach(t => t.stop());
+      this.localStream = undefined;
+    }
+    if (!keepLocal) this.attachLocal(null);
+    this.attachRemote(null);
+  }
+
+  private attachLocal(stream: MediaStream | null) {
+    const v = this.localVideoRef?.nativeElement;
+    if (!v) return;
+    if (stream) {
+      v.srcObject = stream as any;
+      v.muted = true;
+      v.play().catch(() => {});
+    } else {
+      v.srcObject = null;
+    }
+  }
+
+  private attachRemote(stream: MediaStream | null) {
+    const v = this.remoteVideoRef?.nativeElement;
+    if (!v) return;
+    if (stream) {
+      v.srcObject = stream as any;
+      v.play().catch(() => {});
+    } else {
+      v.srcObject = null;
+    }
+  }
+
+/** Copy your current Peer ID to the clipboard */
+async copyMyId() {
+  if (!this.myPeerId) {
+    alert('No Peer ID yet. Click "Start Video Chat" first.');
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(this.myPeerId);
+    console.log('Copied ID:', this.myPeerId);
+  } catch {
+    alert('Copy failed — select the ID and copy manually.');
+  }
 }
 
-  /** ---------- Start video chat ---------- */
-  startVideoChat() {
-    this.router.navigate(['/video']);
-  }
+/** Generate a fresh Peer ID (useful if the old one looks stuck) */
+newPeerId() {
+  // keepLocal=true → end any call but keep the camera on
+  this.endCall(true);
+  try { this.peer?.destroy(); } catch {}
+  this.peer = undefined;
+  this.myPeerId = '';
+  this.ensurePeer(); // re-create and get a new ID
+}
+
 
   /** ---------- Users (Super local) ---------- */
   createUser() {
@@ -367,6 +549,7 @@ sendImage(event: Event) {
             this.selectedGroup = null;
             this.selectedChannel = null;
             this.messages = [];
+            this.joined = false;
           }
           this.refreshGroups();
         } else {
@@ -386,6 +569,7 @@ sendImage(event: Event) {
             this.selectedGroup = null;
             this.selectedChannel = null;
             this.messages = [];
+            this.joined = false;
           }
           this.groups = this.groups.filter(g => g.id !== group.id);
         } else {
@@ -407,6 +591,7 @@ sendImage(event: Event) {
             if (this.selectedChannel?.id === channelId) {
               this.selectedChannel = null;
               this.messages = [];
+              this.joined = false;
             }
             if (this.selectedGroup?.id === g.id) this.selectGroup(g);
           } else {
@@ -419,7 +604,7 @@ sendImage(event: Event) {
     });
   }
 
-  /** Ban/unban by username (Ban Management) */
+  /** Ban/unban by username */
   banUser(group: Group | null, channel: Channel | null, username: string) {
     if (!group || !channel) { alert('Pick a channel first (click a channel name), then ban.'); return; }
     if (!this.canModerate(group)) { alert('Not allowed to ban in this channel.'); return; }
@@ -462,11 +647,9 @@ sendImage(event: Event) {
     return this.authService.getAllUsers().find(u => u.id === id);
   }
 
-  /** ---------- Restored helpers used by template ---------- */
   public groupMemberIds(group: any): string[] {
     const users   = Array.isArray(group?.users) ? group.users : [];
     const members = Array.isArray(group?.members) ? group.members : [];
-    // unique by id
     return [...users, ...members].filter((v: string, i: number, a: string[]) => a.indexOf(v) === i);
   }
 
@@ -476,10 +659,10 @@ sendImage(event: Event) {
     const bannedNames: string[] = Array.isArray((ch as any)?.bannedUsernames)
       ? (ch as any).bannedUsernames
       : [];
-    // keep members whose username is not banned-by-name
     return members.filter(id => {
       const uname = this.getUserById(id)?.username || '';
       return !bannedNames.includes(uname);
     });
   }
 }
+
