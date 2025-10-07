@@ -70,17 +70,21 @@ describe('Upload chat image', () => {
 
     cy.contains('li', 'General', { timeout: 10000 }).click();
 
-    // ✅ Wait for the FIRST messages fetch using the initial alias
+    // Wait for the FIRST messages fetch using the initial alias
     cy.wait('@getMessagesInitial');
   });
 
   it('stubs /upload/chat and shows the image in the chat', () => {
-    // ✅ Register the "after upload" intercept ONLY now, so it doesn't override the initial one
+    // Register the "after upload" intercept ONLY now, so it doesn't override the initial one
     cy.intercept('GET', '**/messages*', [{
       username: 'super',
       imageUrl: '/uploads/chat/fake.png',
       timestamp: Date.now()
     }]).as('getMessagesAfterUpload');
+
+    // Wait for messages and for the chat upload input to render
+    cy.wait('@getMessages');
+    cy.get('[data-cy=chat-upload]', { timeout: 10000 }).should('be.visible');
 
     // Single chat-upload input (you removed the duplicate block)
     cy.get('[data-cy=chat-upload]')

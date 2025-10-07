@@ -17,6 +17,15 @@ export class AuthService {
     else localStorage.removeItem(this.CURRENT_KEY);
   }
 
+  // add this helper
+updateAvatar(userId: string, url: string) {
+  const me = this.getUser();
+  if (me && me.id === userId) {
+    (me as any).avatarUrl = url;
+    localStorage.setItem('auth_user', JSON.stringify(me));
+  }
+}
+
   // Seed a super user if none exists
   private ensureSeed() {
     const users = this.readUsers();

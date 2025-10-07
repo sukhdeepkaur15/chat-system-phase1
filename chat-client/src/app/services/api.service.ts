@@ -1,6 +1,8 @@
 import { Injectable } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
+import { catchError } from 'rxjs/operators';
+import { throwError } from 'rxjs';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
@@ -48,12 +50,26 @@ export class ApiService {
     });
   }
 
-  /** --- Avatars (profile images) --- */
-  uploadAvatar(userId: string, file: File): Observable<any> {
-    const form = new FormData();
-    form.append('avatar', file);
-    form.append('userId', userId);
-    return this.http.post(`${this.base}/upload/avatar`, form);
+  // add this method (or replace your existing uploadAvatar)
+uploadAvatar(userId: string, file: File) {
+  const fd = new FormData();
+  // server accepts either "avatar" or "file"; we'll send "avatar"
+  fd.append('avatar', file, file.name);
+  fd.append('userId', userId);
+
+  // DO NOT set Content-Type manually – the browser will set multipart boundaries
+  return this.http.post<{ ok: boolean; url?: string; imageUrl?: string }>(
+    this.base + '/upload/avatar',
+      fd
+    ).pipe(
+      // If that path isn’t mounted in this env, retry plain /avatar
+      catchError(err => {
+        return this.http.post<{ ok: boolean; url?: string; imageUrl?: string }>(
+          this.base + '/avatar',
+          fd
+        );
+      })
+    );
   }
 
 // --- Chat images ---
