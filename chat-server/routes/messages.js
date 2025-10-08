@@ -4,11 +4,13 @@ const { getDb } = require('../mongo');
 
 const router = express.Router();
 
+// room helper must match sockets.js
+const roomId = (groupId, channelId) => `${groupId}:${channelId}`;
 
 /**
  * Parse an optional "before" value:
  * - number (ms) → use as-is
- * - ISO string → Date.parse
+ * - ISO string  → Date.parse
  * - missing/invalid → now
  */
 function parseBefore(v) {
@@ -40,7 +42,7 @@ router.get('/messages', async (req, res) => {
 
     const db = getDb();
 
-    // (Optional but recommended: ensure group/channel exist)
+    // Optional but useful: ensure group & channel exist
     const g = await db.collection('groups').findOne({ id: groupId });
     if (!g) return res.status(404).json({ error: 'group not found' });
     const ch = (g.channels || []).find(c => c.id === channelId);
@@ -48,11 +50,11 @@ router.get('/messages', async (req, res) => {
 
     const msgs = await db.collection('messages')
       .find({ groupId, channelId, timestamp: { $lt: before } })
-      .sort({ timestamp: -1 })
+      .sort({ timestamp: -1 })    // newest first
       .limit(n)
       .toArray();
 
-    // Return oldest → newest
+    // return oldest → newest
     res.json(msgs.reverse());
   } catch (err) {
     console.error('[GET /messages] error', err);
@@ -63,6 +65,7 @@ router.get('/messages', async (req, res) => {
 /**
  * POST /messages
  * body: { groupId, channelId, userId, username, avatarUrl?, type? ('text'|'image'), content?, imageUrl? }
+ * NOTE: REST is the single source of truth. We emit to the socket room AFTER saving.
  */
 router.post('/messages', async (req, res) => {
   try {
@@ -94,11 +97,11 @@ router.post('/messages', async (req, res) => {
     const ch = (g.channels || []).find(c => c.id === channelId);
     if (!ch) return res.status(404).json({ error: 'channel not found' });
 
-    // Enforce channel bans
-    const isBanned =
+    // Enforce channel bans (support both legacy and new keys)
+    const banned =
       (ch.bannedUsernames || []).includes(username) ||
-      (ch.bannedUserIds || []).includes(userId);
-    if (isBanned) {
+      (ch.bannedUserIds || ch.bannedUsers || []).includes(userId);
+    if (banned) {
       return res.status(403).json({ error: 'User is banned from this channel' });
     }
 
@@ -108,7 +111,7 @@ router.post('/messages', async (req, res) => {
       userId,
       username,
       avatarUrl: avatarUrl ?? null,
-      type,                       // 'text' | 'image'
+      type,                         // 'text' | 'image'
       content: content ?? null,
       imageUrl: imageUrl ?? null,
       timestamp: Date.now()
@@ -116,11 +119,9 @@ router.post('/messages', async (req, res) => {
 
     await db.collection('messages').insertOne(doc);
 
-    // Optional broadcast: if you've attached io to app (app.set('io', io))
-    const io = req.app.get('io');
-    if (io) {
-      io.to(channelId).emit('message', doc);
-    }
+    // Emit exactly once to the same room sockets use
+    const io = req.app && req.app.get && req.app.get('io');
+    if (io) io.to(roomId(groupId, channelId)).emit('message', doc);
 
     res.status(201).json({ ok: true, message: doc });
   } catch (err) {
@@ -130,3 +131,4 @@ router.post('/messages', async (req, res) => {
 });
 
 module.exports = router;
+

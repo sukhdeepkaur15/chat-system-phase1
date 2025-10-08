@@ -176,8 +176,12 @@
 
     <!-- Video controls -->
     <div class="controls" style="display:flex; gap:8px; align-items:center; margin-top:12px;">
-      <button class="btn-green" (click)="startVideoChat()" [disabled]="!joined || startingVideo">Start Video Chat</button>
-      <button class="btn-orange" (click)="endVideoChat()" [disabled]="!inCall">End Call</button>
+      <button class="btn-green" (click)="startVideoChat()">Start Video Chat</button>
+      <button class="btn-red"
+        (click)="endVideoChat()"
+        [disabled]="!inCall && !localStream">
+  End Call
+</button>
 
       <input class="input" placeholder="Remote Peer ID" [(ngModel)]="remotePeerId" />
       <button class="btn-blue" (click)="callRemote()" [disabled]="!localStream || !remotePeerId">Call</button>

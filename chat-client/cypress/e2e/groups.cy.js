@@ -1,5 +1,4 @@
 /// <reference types="cypress" />
-// cypress/e2e/groups.cy.js
 describe('Groups list', () => {
   beforeEach(() => {
     // wait for dashboard to load its groups

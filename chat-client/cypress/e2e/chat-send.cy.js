@@ -71,6 +71,7 @@ describe('Send chat message', () => {
     cy.contains('li', 'General', { timeout: 10000 }).click();
     cy.wait('@getMessages');
   });
+  
 
   it('sends text and shows it', () => {
     // Echo POST /messages
