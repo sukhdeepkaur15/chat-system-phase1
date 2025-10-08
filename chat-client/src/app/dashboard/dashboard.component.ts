@@ -3,6 +3,7 @@ import { Component, ElementRef, OnInit, NgZone, ViewChild, OnDestroy } from '@an
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
+import { Subscription } from 'rxjs';
 
 import Peer, { MediaConnection } from 'peerjs';
 
@@ -50,15 +51,20 @@ export class DashboardComponent implements OnInit, OnDestroy {
   /** ---------- Video chat refs ---------- */
   @ViewChild('localVideo',  { static: true })  localVideoRef!: ElementRef<HTMLVideoElement>;
   @ViewChild('remoteVideo', { static: true })  remoteVideoRef!: ElementRef<HTMLVideoElement>;
-
+  
   /** ---------- PeerJS state ---------- */
   peer?: Peer;
   currentCall?: MediaConnection;
   myPeerId = '';
   remotePeerId = '';
   localStream?: MediaStream;
+  remoteStream?: MediaStream;
   inCall = false;
   startingVideo = false;
+   
+  private socketSub?: Subscription;
+  private room?: { groupId: string; channelId: string };
+  private offMsg?: () => void;
 
   // Used by the template to enable the Start Video button
   joined = false;
@@ -69,7 +75,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
     private chatService: ChatService,
     private api: ApiService,
     private router: Router,
-    private zone: NgZone
+    private zone: NgZone,
   ) {}
 
   /** ---------- Lifecycle ---------- */
@@ -91,9 +97,24 @@ export class DashboardComponent implements OnInit, OnDestroy {
 
     // IMPORTANT: do NOT init Peer here. We only create it when user clicks Start Video Chat.
     // This avoids the unhandled error crash if the peer server isn’t reachable.
-  }
+    this.socketSub = this.chatService.onMessage$.subscribe((msg: any) => {
+  if (!this.selectedGroup || !this.selectedChannel) return;
+  if (msg.groupId !== this.selectedGroup.id || msg.channelId !== this.selectedChannel.id) return;
+
+  // Ignore echo of our own message (we already updated optimistically + via REST)
+  if (msg.userId === this.currentUser.id) return;
+
+  this.messages = [...(this.messages || []), msg];
+ });
+}
 
   ngOnDestroy(): void {
+    try {
+    if (this.selectedGroup && this.selectedChannel) {
+      this.chatService.leaveChannel(this.selectedGroup.id, this.selectedChannel.id);
+    }
+  } catch {}
+  this.socketSub?.unsubscribe();
     this.endCall(true);
     try { this.peer?.destroy(); } catch {}
     this.peer = undefined;
@@ -193,36 +214,86 @@ export class DashboardComponent implements OnInit, OnDestroy {
   }
 
   /** ---------- Auth ---------- */
-  logout() {
+  async logout() {
+    await this.leaveCurrentRoom();
     this.authService.logout();
     this.router.navigate(['/login']);
   }
 
-  /** ---------- Selection ---------- */
-  selectGroup(group: Group) {
-    this.selectedGroup = this.groups.find(g => g.id === group.id) ?? group;
-    this.selectedChannel = null;
-    this.messages = [];
+/** Leave the current socket room and stop realtime listener */
+private async leaveCurrentRoom(): Promise<void> {
+  try {
+    if (this.room) {
+      const { groupId, channelId } = this.room;
+      await this.chatService.leaveChannel(groupId, channelId).catch(() => {});
+      this.room = undefined;
+    }
+  } finally {
+    if (this.offMsg) {
+      try { this.offMsg(); } catch {}
+      this.offMsg = undefined;
+    }
     this.joined = false;
   }
-  selectChannel(channel: Channel) {
-    if (!this.selectedGroup) return;
-    const isChanBanned = (channel.bannedUsers || []).includes(this.currentUserId);
-    const isMember = (channel.members || []).includes(this.currentUserId);
-    if (!this.isSuper && (isChanBanned || !isMember)) {
-      alert('You are not allowed to access this channel.');
-      return;
+}
+
+/** ---------- Selection ---------- */
+async selectGroup(group: Group) {
+  // Leave any previously joined channel room
+  await this.leaveCurrentRoom();
+
+  this.selectedGroup = this.groups.find(g => g.id === group.id) ?? group;
+  this.selectedChannel = null;
+  this.messages = [];
+  this.joined = false;
+}
+
+async selectChannel(channel: Channel) {
+  if (!this.selectedGroup) return;
+
+  const isChanBanned = (channel.bannedUsers || []).includes(this.currentUserId);
+  const isMember     = (channel.members || []).includes(this.currentUserId);
+  if (!this.isSuper && (isChanBanned || !isMember)) {
+    alert('You are not allowed to access this channel.');
+    return;
+  }
+
+  // If switching channels, leave the old room & stop old listener
+  await this.leaveCurrentRoom();
+
+  // Select & load history first (REST is source of truth)
+  this.selectedChannel = channel;
+  const gid = this.selectedGroup.id;
+  const cid = channel.id;
+  this.loadMessages(gid, cid);
+
+  // Join the socket room for realtime messages
+  const ack = await this.chatService.joinChannel(gid, cid, this.currentUser.id, this.username);
+  if (!ack?.ok) {
+    console.warn('[joinChannel] failed:', ack?.error);
+    this.joined = false;
+    return;
+  }
+
+  // Mark joined and remember the room
+  this.room = { groupId: gid, channelId: cid };
+  this.joined = true;
+
+  // Start realtime subscription for ONLY this channel
+  this.offMsg = this.chatService.onMessage((m: any) => {
+    if (m?.groupId === gid && m?.channelId === cid) {
+      this.messages = [...(this.messages || []), m];
     }
-    this.selectedChannel = channel;
-    this.joined = true; // enable Start Video Chat in the UI
-    this.loadMessages(this.selectedGroup.id, channel.id);
-  }
-  private loadMessages(groupId: string, channelId: string) {
-    this.chatService.getMessages(groupId, channelId).subscribe({
-      next: (msgs) => { this.messages = (msgs || []) as ChatMsg[]; },
-      error: () => { this.messages = []; }
-    });
-  }
+  });
+}
+
+private loadMessages(groupId: string, channelId: string) {
+  this.chatService.getMessages(groupId, channelId).subscribe({
+    next: (msgs) => { this.messages = (msgs || []) as ChatMsg[]; },
+    error: () => { this.messages = []; }
+  });
+}
+
 
   /** ---------- Messaging ---------- */
   sendMessage() {
@@ -334,52 +405,55 @@ export class DashboardComponent implements OnInit, OnDestroy {
   // PeerJS helpers
   // =======================
 
-  /** Create a Peer instance (only when needed) */
-  private ensurePeer(): void {
-    if (this.peer && !(this.peer as any).destroyed) return;
+private ensurePeer(): void {
+  if (this.peer && !(this.peer as any).destroyed) return;
 
-    const isHttps = location.protocol === 'https:';
-    const host = location.hostname || 'localhost';
+  try {
+    // IMPORTANT: options-only constructor; do NOT pass `undefined` as the first arg
+    this.peer = new Peer({
+      host: window.location.hostname || 'localhost',
+      port: 4001,
+      path: '/peerjs',                       // must be exactly this
+      secure: window.location.protocol === 'https:',
+      debug: 2
+    });
 
-    try {
-      this.peer = new Peer({
-        host,
-        port: 4001,
-        path: '/peerjs',
-        secure: isHttps,
-        debug: 1
+    this.peer.on('open', (id: string) => {
+      this.zone.run(() => {
+        this.myPeerId = id;
+        console.log('[peer] open -> id:', id);
       });
+    });
 
-      this.peer.on('open', id => {
-        this.zone.run(() => {
-          this.myPeerId = id;
-          console.log('[peer] open', id);
-        });
-      });
+    this.peer.on('disconnected', () => {
+      console.warn('[peer] disconnected');
+    });
 
-      this.peer.on('error', err => {
-        // Don’t crash the app; just log
-        console.warn('[peer] error', err);
-      });
+    this.peer.on('close', () => {
+      console.warn('[peer] close');
+    });
 
-      // Incoming calls
-      this.peer.on('call', (call: MediaConnection) => {
-        console.log('[peer] incoming call from', call.peer);
-        try { this.currentCall?.close(); } catch {}
-        this.currentCall = call;
+    this.peer.on('error', (err: any) => {
+      console.warn('[peer] error', err);
+    });
 
-        call.on('stream', s => this.attachRemote(s));
-        call.on('close',  () => { this.attachRemote(null); this.inCall = false; });
-        call.on('error',  e => console.error('[call] error', e));
+    // Incoming calls
+    this.peer.on('call', (call: MediaConnection) => {
+      console.log('[peer] incoming call from', call.peer);
+      try { this.currentCall?.close(); } catch {}
+      this.currentCall = call;
 
-        // two-way if we have local media; receive-only otherwise
-        call.answer(this.localStream || undefined);
-        this.inCall = true;
-      });
-    } catch (e) {
-      console.warn('[peer] failed to construct Peer', e);
-    }
+      call.on('stream', s => this.attachRemote(s));
+      call.on('close',  () => { this.attachRemote(null); this.inCall = false; });
+      call.on('error',  e => console.error('[call] error', e));
+
+      call.answer(this.localStream || undefined);
+      this.inCall = true;
+    });
+  } catch (e) {
+    console.warn('[peer] failed to construct Peer', e);
   }
+}
 
   /** Start local camera/mic and display in the "Me" tile; also creates Peer */
   async startVideoChat() {
@@ -419,46 +493,94 @@ export class DashboardComponent implements OnInit, OnDestroy {
     this.inCall = true;
   }
 
-  // For template alias compatibility
-  callRemote() { this.callPeer(); }
-  endVideoChat() { this.endCall(); }
+/** Utility: stop all tracks of a stream (safe) */
+private stopStream(stream?: MediaStream | null) {
+  try {
+    stream?.getTracks()?.forEach(t => {
+      try { t.stop(); } catch {}
+    });
+  } catch {}
+}
 
-  /** End call; optionally keep camera running */
-  endCall(keepLocal = false) {
-    try { this.currentCall?.close(); } catch {}
-    this.currentCall = undefined;
-    this.inCall = false;
+/** Close any lingering PeerJS connections (media + data) */
+private closeAllPeerConnections(): void {
+  if (!this.peer) return;
+  const conns = (this.peer as any).connections as Record<string, any[]> | undefined;
+  if (!conns) return;
+  Object.values(conns).forEach(list => {
+    list?.forEach(c => { try { c.close?.(); } catch {} });
+  });
+}
 
-    if (!keepLocal && this.localStream) {
-      this.localStream.getTracks().forEach(t => t.stop());
-      this.localStream = undefined;
-    }
-    if (!keepLocal) this.attachLocal(null);
-    this.attachRemote(null);
+/** Pause & clear a <video> element */
+private pauseAndClearVideo(ref?: ElementRef<HTMLVideoElement>) {
+  const v = ref?.nativeElement;
+  if (!v) return;
+  try { v.pause(); } catch {}
+  try { (v as any).srcObject = null; } catch {}
+  try { v.removeAttribute('src'); } catch {}
+  try { v.load?.(); } catch {}
+}
+
+/// Template aliases (keep these names for your HTML)
+callRemote() { this.callPeer(); }
+endVideoChat() { this.endCall(); }
+
+/** End call; optionally keep camera running */
+endCall(keepLocal = false) {
+  // 1) Close active call (local side)
+  try { this.currentCall?.close(); } catch {}
+  this.currentCall = undefined;
+
+  // 2) Close any other stray PeerJS connections
+  this.closeAllPeerConnections();
+
+  // 3) Stop and clear REMOTE stream & video immediately
+  this.stopStream(this.remoteStream);
+  this.remoteStream = undefined;
+  this.pauseAndClearVideo(this.remoteVideoRef);
+
+  // 4) Stop and clear LOCAL stream if requested
+  if (!keepLocal) {
+    this.stopStream(this.localStream);
+    this.localStream = undefined;
+    this.pauseAndClearVideo(this.localVideoRef);
   }
 
-  private attachLocal(stream: MediaStream | null) {
-    const v = this.localVideoRef?.nativeElement;
-    if (!v) return;
-    if (stream) {
-      v.srcObject = stream as any;
-      v.muted = true;
-      v.play().catch(() => {});
-    } else {
-      v.srcObject = null;
-    }
-  }
+  // 5) Mark state
+  this.inCall = false;
 
-  private attachRemote(stream: MediaStream | null) {
-    const v = this.remoteVideoRef?.nativeElement;
-    if (!v) return;
-    if (stream) {
-      v.srcObject = stream as any;
-      v.play().catch(() => {});
-    } else {
-      v.srcObject = null;
-    }
+  // 6) Safety: drop socket transport so nothing reattaches unexpectedly.
+  // (You can still call again; ensurePeer() will reconnect/create as needed.)
+  try { this.peer?.disconnect(); } catch {}
+}
+
+/** Attach/detach local media to the local <video> */
+private attachLocal(stream: MediaStream | null) {
+  this.localStream = stream ?? undefined;
+  const v = this.localVideoRef?.nativeElement;
+  if (!v) return;
+  if (stream) {
+    (v as any).srcObject = stream;
+    v.muted = true;
+    v.play().catch(() => {});
+  } else {
+    this.pauseAndClearVideo(this.localVideoRef);
   }
+}
+
+/** Attach/detach remote media to the remote <video> */
+private attachRemote(stream: MediaStream | null) {
+  this.remoteStream = stream ?? undefined;
+  const v = this.remoteVideoRef?.nativeElement;
+  if (!v) return;
+  if (stream) {
+    (v as any).srcObject = stream;
+    v.play().catch(() => {});
+  } else {
+    this.pauseAndClearVideo(this.remoteVideoRef);
+  }
+}
 
 /** Copy your current Peer ID to the clipboard */
 async copyMyId() {
